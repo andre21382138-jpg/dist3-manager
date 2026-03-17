@@ -884,40 +884,335 @@ function Sidebar({ profile, currentPage, onNavigate, onLogout }) {
   );
 }
 
+/* ─── NOTICE BOARD ──────────────────────────────────────────────────── */
+const PAGE_SIZE = 10;
+
+function NoticeBoard({ profile }) {
+  const isAdmin = profile?.role === 'admin';
+  const [notices, setNotices]     = useState([]);
+  const [loading, setLoading]     = useState(true);
+  const [page, setPage]           = useState(1);
+  const [total, setTotal]         = useState(0);
+  const [view, setView]           = useState(null);   // 상세보기 공지
+  const [writing, setWriting]     = useState(false);  // 작성 폼
+  const [editTarget, setEditTarget] = useState(null); // 수정 대상
+  const [form, setForm]           = useState({ title: '', content: '', pinned: false });
+  const [saving, setSaving]       = useState(false);
+  const [comments, setComments]   = useState([]);
+  const [commentText, setCommentText] = useState('');
+  const [commentSaving, setCommentSaving] = useState(false);
+
+  useEffect(() => { loadNotices(); }, [page]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function loadNotices() {
+    setLoading(true);
+    // 전체 수
+    const { count } = await supabase.from('notices').select('*', { count: 'exact', head: true });
+    setTotal(count || 0);
+
+    // 고정글 먼저, 그 다음 최신순
+    const from = (page - 1) * PAGE_SIZE;
+    const { data } = await supabase.from('notices').select('*')
+      .order('pinned', { ascending: false })
+      .order('created_at', { ascending: false })
+      .range(from, from + PAGE_SIZE - 1);
+    setNotices(data || []);
+    setLoading(false);
+  }
+
+  async function loadComments(noticeId) {
+    const { data } = await supabase.from('notice_comments').select('*')
+      .eq('notice_id', noticeId).order('created_at', { ascending: true });
+    setComments(data || []);
+  }
+
+  async function openNotice(n) {
+    setView(n); setCommentText('');
+    await loadComments(n.id);
+  }
+
+  async function handleSave() {
+    if (!form.title.trim() || !form.content.trim()) return;
+    setSaving(true);
+    if (editTarget) {
+      await supabase.from('notices').update({
+        title: form.title, content: form.content, pinned: form.pinned,
+      }).eq('id', editTarget.id);
+    } else {
+      await supabase.from('notices').insert({
+        title: form.title, content: form.content, pinned: form.pinned,
+        author_id: profile.id, author_name: profile.name,
+      });
+    }
+    setSaving(false);
+    setWriting(false); setEditTarget(null); setForm({ title: '', content: '', pinned: false });
+    loadNotices();
+  }
+
+  async function handleDelete(id) {
+    if (!window.confirm('공지사항을 삭제하시겠습니까?')) return;
+    await supabase.from('notice_comments').delete().eq('notice_id', id);
+    await supabase.from('notices').delete().eq('id', id);
+    if (view?.id === id) setView(null);
+    loadNotices();
+  }
+
+  async function handleTogglePin(n) {
+    await supabase.from('notices').update({ pinned: !n.pinned }).eq('id', n.id);
+    loadNotices();
+    if (view?.id === n.id) setView({ ...n, pinned: !n.pinned });
+  }
+
+  async function handleCommentSubmit() {
+    if (!commentText.trim()) return;
+    setCommentSaving(true);
+    await supabase.from('notice_comments').insert({
+      notice_id: view.id,
+      author_id: profile.id,
+      author_name: profile.name,
+      content: commentText.trim(),
+    });
+    setCommentText('');
+    await loadComments(view.id);
+    setCommentSaving(false);
+  }
+
+  async function handleCommentDelete(cid) {
+    await supabase.from('notice_comments').delete().eq('id', cid);
+    await loadComments(view.id);
+  }
+
+  const totalPages = Math.ceil(total / PAGE_SIZE);
+
+  // ── 작성/수정 폼 ──
+  if (writing || editTarget) {
+    return (
+      <div className="card" style={{ marginTop: 0 }}>
+        <div className="card-title">
+          <Icon name="file" style={{ width: 18, height: 18 }} />
+          {editTarget ? '공지사항 수정' : '공지사항 작성'}
+        </div>
+        <div className="form-group">
+          <label className="form-label">제목</label>
+          <input className="form-input" placeholder="제목을 입력하세요" value={form.title}
+            onChange={e => setForm(f => ({ ...f, title: e.target.value }))} />
+        </div>
+        <div className="form-group">
+          <label className="form-label">내용</label>
+          <textarea className="form-input" rows={8} placeholder="내용을 입력하세요"
+            style={{ resize: 'vertical', lineHeight: 1.6 }}
+            value={form.content}
+            onChange={e => setForm(f => ({ ...f, content: e.target.value }))} />
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 20 }}>
+          <input type="checkbox" id="pinned" checked={form.pinned}
+            onChange={e => setForm(f => ({ ...f, pinned: e.target.checked }))} />
+          <label htmlFor="pinned" style={{ fontSize: 14, cursor: 'pointer' }}>📌 상단 고정</label>
+        </div>
+        <div style={{ display: 'flex', gap: 10 }}>
+          <button className="btn btn-outline btn-sm" onClick={() => { setWriting(false); setEditTarget(null); setForm({ title: '', content: '', pinned: false }); }}>취소</button>
+          <button className="btn btn-sm" style={{ background: 'var(--blue)', color: 'white' }}
+            disabled={saving || !form.title.trim() || !form.content.trim()} onClick={handleSave}>
+            {saving ? <span className="loading-spinner" /> : (editTarget ? '수정 완료' : '등록')}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // ── 상세보기 ──
+  if (view) {
+    return (
+      <div>
+        <div className="card" style={{ marginBottom: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 16 }}>
+            <div>
+              {view.pinned && <span style={{ background: '#fef3c7', color: '#92400e', fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 10, marginRight: 8 }}>📌 고정</span>}
+              <span style={{ fontSize: 18, fontWeight: 700, color: 'var(--navy)' }}>{view.title}</span>
+            </div>
+            <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+              {isAdmin && (
+                <>
+                  <button className="btn btn-sm btn-outline" onClick={() => handleTogglePin(view)}>
+                    {view.pinned ? '고정 해제' : '📌 고정'}
+                  </button>
+                  <button className="btn btn-sm btn-blue-light" onClick={() => {
+                    setEditTarget(view); setForm({ title: view.title, content: view.content, pinned: view.pinned }); setView(null);
+                  }}>수정</button>
+                  <button className="btn btn-sm btn-danger" onClick={() => handleDelete(view.id)}>삭제</button>
+                </>
+              )}
+              <button className="btn btn-sm btn-outline" onClick={() => setView(null)}>← 목록</button>
+            </div>
+          </div>
+          <div style={{ fontSize: 12, color: 'var(--gray3)', marginBottom: 20 }}>
+            {view.author_name} · {fmtDateTime(view.created_at)}
+          </div>
+          <div className="divider" />
+          <div style={{ fontSize: 14, lineHeight: 1.8, whiteSpace: 'pre-wrap', color: 'var(--text)', padding: '12px 0' }}>
+            {view.content}
+          </div>
+        </div>
+
+        {/* 댓글 */}
+        <div className="card">
+          <div className="card-title" style={{ marginBottom: 16 }}>
+            댓글 <span style={{ fontSize: 13, color: 'var(--gray3)', fontWeight: 400 }}>{comments.length}개</span>
+          </div>
+          {comments.length === 0 ? (
+            <div style={{ fontSize: 13, color: 'var(--gray3)', textAlign: 'center', padding: '20px 0' }}>첫 댓글을 남겨보세요.</div>
+          ) : (
+            <div style={{ marginBottom: 16 }}>
+              {comments.map(c => (
+                <div key={c.id} style={{ padding: '12px 0', borderBottom: '1px solid var(--gray2)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <div className="user-avatar" style={{ width: 26, height: 26, fontSize: 11 }}>{getInitial(c.author_name)}</div>
+                      <span style={{ fontSize: 13, fontWeight: 600 }}>{c.author_name}</span>
+                      <span style={{ fontSize: 11, color: 'var(--gray3)' }}>{fmtDateTime(c.created_at)}</span>
+                    </div>
+                    {(isAdmin || c.author_id === profile?.id) && (
+                      <button className="btn btn-sm btn-danger" style={{ padding: '3px 8px', fontSize: 11 }}
+                        onClick={() => handleCommentDelete(c.id)}>삭제</button>
+                    )}
+                  </div>
+                  <div style={{ fontSize: 14, color: 'var(--text)', paddingLeft: 34, lineHeight: 1.6 }}>{c.content}</div>
+                </div>
+              ))}
+            </div>
+          )}
+          {/* 댓글 입력 */}
+          <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+            <input className="form-input" placeholder="댓글을 입력하세요"
+              value={commentText} onChange={e => setCommentText(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleCommentSubmit(); } }}
+              style={{ flex: 1 }} />
+            <button className="btn btn-sm" style={{ background: 'var(--blue)', color: 'white', minWidth: 64 }}
+              disabled={!commentText.trim() || commentSaving} onClick={handleCommentSubmit}>
+              {commentSaving ? <span className="loading-spinner" /> : '등록'}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── 목록 ──
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+        <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--navy)', display: 'flex', alignItems: 'center', gap: 6 }}>
+          📋 공지사항
+          <span style={{ fontSize: 12, color: 'var(--gray3)', fontWeight: 400 }}>총 {total}건</span>
+        </div>
+        {isAdmin && (
+          <button className="btn btn-sm" style={{ background: 'var(--blue)', color: 'white' }}
+            onClick={() => { setWriting(true); setForm({ title: '', content: '', pinned: false }); }}>
+            + 공지 작성
+          </button>
+        )}
+      </div>
+
+      <div className="table-wrap">
+        {loading ? (
+          <div style={{ textAlign: 'center', padding: 32, color: 'var(--gray3)' }}>불러오는 중...</div>
+        ) : notices.length === 0 ? (
+          <div className="empty-state" style={{ padding: 40 }}>
+            <Icon name="file" style={{ width: 36, height: 36 }} />
+            <p>등록된 공지사항이 없습니다.</p>
+          </div>
+        ) : (
+          <table>
+            <thead>
+              <tr>
+                <th style={{ width: 40 }}></th>
+                <th>제목</th>
+                <th style={{ width: 100 }}>작성자</th>
+                <th style={{ width: 130 }}>작성일</th>
+                {isAdmin && <th style={{ width: 80 }}></th>}
+              </tr>
+            </thead>
+            <tbody>
+              {notices.map(n => (
+                <tr key={n.id} style={{ cursor: 'pointer' }} onClick={() => openNotice(n)}>
+                  <td style={{ textAlign: 'center' }}>
+                    {n.pinned && <span title="고정">📌</span>}
+                  </td>
+                  <td style={{ fontWeight: n.pinned ? 700 : 400, color: n.pinned ? 'var(--navy)' : 'var(--text)' }}>
+                    {n.title}
+                  </td>
+                  <td style={{ fontSize: 13, color: 'var(--gray4)' }}>{n.author_name}</td>
+                  <td style={{ fontSize: 12, color: 'var(--gray3)' }}>{fmtDateTime(n.created_at)}</td>
+                  {isAdmin && (
+                    <td onClick={e => e.stopPropagation()}>
+                      <div style={{ display: 'flex', gap: 4 }}>
+                        <button className="btn btn-sm btn-danger" style={{ padding: '3px 8px', fontSize: 11 }}
+                          onClick={() => handleDelete(n.id)}>삭제</button>
+                      </div>
+                    </td>
+                  )}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      {/* 페이지네이션 */}
+      {totalPages > 1 && (
+        <div style={{ display: 'flex', justifyContent: 'center', gap: 6, marginTop: 16 }}>
+          <button className="btn btn-outline btn-sm" disabled={page === 1} onClick={() => setPage(p => p - 1)}>이전</button>
+          {Array.from({ length: totalPages }, (_, i) => i + 1).map(p => (
+            <button key={p} className="btn btn-sm"
+              style={{ background: p === page ? 'var(--navy)' : 'transparent', color: p === page ? 'white' : 'var(--gray4)', border: '1.5px solid var(--gray2)', minWidth: 34 }}
+              onClick={() => setPage(p)}>{p}</button>
+          ))}
+          <button className="btn btn-outline btn-sm" disabled={page === totalPages} onClick={() => setPage(p => p + 1)}>다음</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ─── HOME PAGE ────────────────────────────────────────────────────── */
-function HomePage({ onNavigate }) {
+function HomePage({ onNavigate, profile }) {
   return (
     <div>
       <div className="page-header">
         <div className="page-title">대시보드</div>
         <div className="page-sub">매입/매출 파일을 업로드하고 이력을 관리하세요.</div>
       </div>
-      <div className="home-grid">
-        <div className="menu-card" onClick={() => onNavigate('purchase')}>
+
+      {/* 메뉴 카드 - 일렬 */}
+      <div style={{ display: 'flex', gap: 16, marginBottom: 32 }}>
+        <div className="menu-card" style={{ flex: 1 }} onClick={() => onNavigate('purchase')}>
           <div className="menu-card-icon" style={{ background: '#eff6ff' }}>
             <Icon name="truck" style={{ color: '#2563eb' }} />
           </div>
           <div className="menu-card-title">매입</div>
-          <div className="menu-card-desc">홈플러스, 롯데마트 등 판매처별<br/>매입 엑셀 파일을 업로드합니다.</div>
+          <div className="menu-card-desc">판매처별 매입 엑셀 파일을 업로드합니다.</div>
           <div className="menu-card-arrow">바로가기 <Icon name="arrow" style={{ width: 14, height: 14 }} /></div>
         </div>
-        <div className="menu-card" onClick={() => onNavigate('sales')}>
+        <div className="menu-card" style={{ flex: 1 }} onClick={() => onNavigate('sales')}>
           <div className="menu-card-icon" style={{ background: '#f0fdf4' }}>
             <Icon name="chart" style={{ color: '#22c55e' }} />
           </div>
           <div className="menu-card-title">매출</div>
-          <div className="menu-card-desc">판매처별 매출 엑셀 파일을<br/>날짜별로 업로드합니다.</div>
+          <div className="menu-card-desc">판매처별 매출 엑셀 파일을 업로드합니다.</div>
           <div className="menu-card-arrow">바로가기 <Icon name="arrow" style={{ width: 14, height: 14 }} /></div>
         </div>
-        <div className="menu-card" onClick={() => onNavigate('history')} style={{ gridColumn: 'span 2' }}>
+        <div className="menu-card" style={{ flex: 1 }} onClick={() => onNavigate('history')}>
           <div className="menu-card-icon" style={{ background: '#fdf4ff' }}>
             <Icon name="history" style={{ color: '#a855f7' }} />
           </div>
           <div className="menu-card-title">업로드 이력</div>
-          <div className="menu-card-desc">지금까지 업로드된 매입·매출 파일 이력을 조회합니다.</div>
+          <div className="menu-card-desc">매입·매출 파일 업로드 이력을 조회합니다.</div>
           <div className="menu-card-arrow">바로가기 <Icon name="arrow" style={{ width: 14, height: 14 }} /></div>
         </div>
       </div>
+
+      {/* 공지사항 */}
+      <NoticeBoard profile={profile} />
     </div>
   );
 }
@@ -1678,7 +1973,7 @@ export default function App() {
     <div className="app-layout">
       <Sidebar profile={profile} currentPage={page} onNavigate={setPage} onLogout={handleLogout} />
       <div className="main-content">
-        {page === 'home'     && <HomePage onNavigate={setPage} />}
+        {page === 'home'     && <HomePage onNavigate={setPage} profile={profile} />}
         {page === 'purchase' && <UploadPage type="매입" profile={profile} key="purchase" />}
         {page === 'sales'    && <UploadPage type="매출" profile={profile} key="sales" />}
         {page === 'history'  && <HistoryPage profile={profile} />}
