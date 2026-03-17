@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { createClient } from '@supabase/supabase-js';
+import * as XLSX from 'xlsx';
 
 const supabase = createClient(
   process.env.REACT_APP_SUPABASE_URL,
@@ -1293,22 +1294,141 @@ function DuplicateModal({ existing, newFile, onReplace, onAdd, onCancel }) {
   );
 }
 
+/* ─── 판매처 파일 파싱 ──────────────────────────────────────────────── */
+async function parseVendorFile(file, vendor, date) {
+  const arrayBuffer = await file.arrayBuffer();
+  const year  = date.substring(0, 4) + '년';
+  const month = parseInt(date.substring(5, 7)) + '월';
+  const day   = parseInt(date.substring(8, 10));
+  const dateObj = new Date(date);
+
+  let items = []; // [{ code, qty }]
+
+  try {
+    if (['이마트', '에브리데이'].includes(vendor)) {
+      // 실제 xlsx - 시트: 매출현황_요약_(상품별)
+      const wb = XLSX.read(arrayBuffer, { type: 'array' });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(ws, { header: 1 });
+      for (let i = 1; i < rows.length; i++) {
+        const r = rows[i];
+        if (!r[0]) continue;
+        items.push({ code: String(r[0]).trim(), qty: Number(r[2]) || 0 });
+      }
+
+    } else if (vendor === '메가마트') {
+      // xlsx (확장자만 xls) - 시트: Sheet1, 점포별 합산
+      const wb = XLSX.read(arrayBuffer, { type: 'array' });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(ws, { header: 1 });
+      const codeMap = {};
+      for (let i = 1; i < rows.length; i++) {
+        const r = rows[i];
+        // 합계 행 제외: col[1]에 '합계' 포함하거나 col[2]가 없는 행
+        if (!r[2] || String(r[1] || '').includes('합계') || String(r[0] || '') === '합계') continue;
+        const code = String(r[2]).trim();
+        const qty  = Number(r[5]) || 0;
+        codeMap[code] = (codeMap[code] || 0) + qty;
+      }
+      items = Object.entries(codeMap).map(([code, qty]) => ({ code, qty }));
+
+    } else if (['롯데마트', '롯데슈퍼'].includes(vendor)) {
+      // HTML xls (UTF-8) - 두 번째 시트가 데이터
+      const wb = XLSX.read(arrayBuffer, { type: 'array' });
+      const sheetName = wb.SheetNames.length > 1 ? wb.SheetNames[1] : wb.SheetNames[0];
+      const ws = wb.Sheets[sheetName];
+      const rows = XLSX.utils.sheet_to_json(ws, { header: 1 });
+      for (let i = 1; i < rows.length; i++) {
+        const r = rows[i];
+        if (!r[0] || String(r[0]) === '합계') continue;
+        items.push({ code: String(r[0]).trim(), qty: Number(r[4]) || 0 });
+      }
+
+    } else if (['홈플러스', '익스프레스'].includes(vendor)) {
+      // HTML xls (EUC-KR) - 두 번째 시트가 데이터
+      const wb = XLSX.read(arrayBuffer, { type: 'array', codepage: 949 });
+      const sheetName = wb.SheetNames.length > 1 ? wb.SheetNames[1] : wb.SheetNames[0];
+      const ws = wb.Sheets[sheetName];
+      const rows = XLSX.utils.sheet_to_json(ws, { header: 1 });
+      for (let i = 1; i < rows.length; i++) {
+        const r = rows[i];
+        if (!r[1] || r[1] === null || r[1] === undefined) continue;
+        const code = String(r[1]).trim();
+        const qty  = Number(r[4]) || 0;
+        if (!code || code === 'NaN') continue;
+        items.push({ code, qty });
+      }
+    }
+  } catch (e) {
+    console.error('파싱 오류:', e);
+    throw new Error(`파일 파싱 실패: ${e.message}`);
+  }
+
+  // B~H 컬럼 형태로 변환
+  return items.map(({ code, qty }) => ({
+    업체명: vendor,
+    연도: year,
+    월: month,
+    일: day,
+    일자: dateObj,
+    상품코드: code,
+    판매수량: qty,
+  }));
+}
+
+/* ─── 자사 양식 다운로드 ────────────────────────────────────────────── */
+function downloadSelfFormat(rows, vendor, date) {
+  const wb = XLSX.utils.book_new();
+  const header = ['업체명', '연도', '월', '일', '일자', '상품코드', '판매수량'];
+
+  const wsData = [header, ...rows.map(r => [
+    r.업체명, r.연도, r.월, r.일,
+    r.일자, r.상품코드, r.판매수량,
+  ])];
+
+  const ws = XLSX.utils.aoa_to_sheet(wsData);
+
+  // F열(일자) 날짜 서식 설정
+  const dateFormat = 'yyyy-mm-dd';
+  for (let i = 1; i < wsData.length; i++) {
+    const cellRef = XLSX.utils.encode_cell({ r: i, c: 4 });
+    if (ws[cellRef]) {
+      ws[cellRef].t = 'd';
+      ws[cellRef].z = dateFormat;
+    }
+  }
+
+  // 열 너비
+  ws['!cols'] = [
+    { wch: 12 }, { wch: 8 }, { wch: 6 }, { wch: 5 },
+    { wch: 14 }, { wch: 16 }, { wch: 10 },
+  ];
+
+  XLSX.utils.book_append_sheet(wb, ws, '매출내역');
+  XLSX.writeFile(wb, `매출내역_${vendor}_${date}.xlsx`);
+}
+
 /* ─── UPLOAD FORM ───────────────────────────────────────────────────── */
 function UploadForm({ type, profile, color, bgColor, onUploaded }) {
-  const [step, setStep]         = useState(1);
-  const [vendor, setVendor]     = useState(null);
-  const [date, setDate]         = useState(todayStr());
-  const [file, setFile]         = useState(null);
-  const [dragging, setDragging] = useState(false);
+  const [step, setStep]           = useState(1);
+  const [vendor, setVendor]       = useState(null);
+  const [date, setDate]           = useState(todayStr());
+  const [file, setFile]           = useState(null);
+  const [dragging, setDragging]   = useState(false);
   const [uploading, setUploading] = useState(false);
-  const [msg, setMsg]           = useState(null);
-  const [dupModal, setDupModal] = useState(null); // 중복 모달 { existing }
-  const fileRef                 = useRef();
+  const [msg, setMsg]             = useState(null);
+  const [dupModal, setDupModal]   = useState(null);
+  const [parsedRows, setParsedRows] = useState(null);   // 파싱 결과
+  const [parsing, setParsing]     = useState(false);
+  const [lastInfo, setLastInfo]   = useState(null);     // { vendor, date } 업로드 완료 후 보존
+  const fileRef                   = useRef();
 
   function todayStr() { return new Date().toISOString().split('T')[0]; }
 
   function resetFlow() {
-    setStep(1); setVendor(null); setDate(todayStr()); setFile(null); setMsg(null); setDupModal(null);
+    setStep(1); setVendor(null); setDate(todayStr());
+    setFile(null); setMsg(null); setDupModal(null);
+    setParsedRows(null); setLastInfo(null);
   }
 
   function handleDrop(e) {
@@ -1321,33 +1441,46 @@ function UploadForm({ type, profile, color, bgColor, onUploaded }) {
     if (!f.name.match(/\.(xlsx|xls|csv)$/i)) {
       setMsg({ type: 'error', text: 'Excel 파일(.xlsx, .xls, .csv)만 업로드 가능합니다.' }); return;
     }
-    setFile(f); setMsg(null);
+    setFile(f); setMsg(null); setParsedRows(null);
   }
 
-  // 실제 업로드 실행
-  async function doUpload(replaceTargets) {
+  // 실제 업로드 + 파싱 실행
+  async function doUpload(replaceTargets, currentFile) {
+    const targetFile = currentFile || file;
     setUploading(true); setDupModal(null); setMsg(null);
     try {
-      // 교체 모드: 기존 파일들 삭제
       if (replaceTargets && replaceTargets.length > 0) {
         const paths = replaceTargets.map(r => r.file_path);
         await supabase.storage.from('excel-uploads').remove(paths);
         await supabase.from('uploads').delete().in('id', replaceTargets.map(r => r.id));
       }
-
       const ts   = Date.now();
-      const path = `${type}/${vendor}/${date}/${ts}_${file.name}`;
-      const { error: stErr } = await supabase.storage.from('excel-uploads').upload(path, file);
+      const path = `${type}/${vendor}/${date}/${ts}_${targetFile.name}`;
+      const { error: stErr } = await supabase.storage.from('excel-uploads').upload(path, targetFile);
       if (stErr) throw stErr;
       const { error: dbErr } = await supabase.from('uploads').insert({
         user_id: profile.id, user_name: profile.name,
         type, vendor, date,
-        file_name: file.name, file_path: path, file_size: file.size,
+        file_name: targetFile.name, file_path: path, file_size: targetFile.size,
       });
       if (dbErr) throw dbErr;
 
-      const modeText = replaceTargets?.length > 0 ? '교체' : '추가';
-      setMsg({ type: 'success', text: `✅ 업로드 ${modeText} 완료! (${vendor} / ${date})` });
+      // 매출 파일이면 파싱
+      if (type === '매출') {
+        setParsing(true);
+        try {
+          const rows = await parseVendorFile(targetFile, vendor, date);
+          setParsedRows(rows);
+          setLastInfo({ vendor, date });
+        } catch (pe) {
+          setMsg({ type: 'warn', text: `⚠️ 업로드는 완료됐지만 파싱 실패: ${pe.message}` });
+        } finally {
+          setParsing(false);
+        }
+      }
+
+      const modeText = replaceTargets?.length > 0 ? '교체' : '완료';
+      setMsg(prev => prev?.type === 'warn' ? prev : { type: 'success', text: `✅ 업로드 ${modeText}! (${vendor} / ${date})` });
       setFile(null);
       if (fileRef.current) fileRef.current.value = '';
       if (onUploaded) onUploaded();
@@ -1358,23 +1491,16 @@ function UploadForm({ type, profile, color, bgColor, onUploaded }) {
     }
   }
 
-  // 업로드 버튼 클릭 → 중복 체크
   async function handleUpload() {
     if (!file || uploading) return;
     setMsg(null);
-
     try {
-      // 동일 판매처 + 날짜 기존 파일 조회
       const { data: existing } = await supabase.from('uploads')
-        .select('*')
-        .eq('type', type)
-        .eq('vendor', vendor)
-        .eq('date', date);
-
+        .select('*').eq('type', type).eq('vendor', vendor).eq('date', date);
       if (existing && existing.length > 0) {
         setDupModal({ existing });
       } else {
-        doUpload(null);
+        doUpload(null, file);
       }
     } catch (err) {
       setMsg({ type: 'error', text: `오류: ${err.message}` });
@@ -1385,13 +1511,12 @@ function UploadForm({ type, profile, color, bgColor, onUploaded }) {
 
   return (
     <div>
-      {/* 중복 모달 */}
       {dupModal && (
         <DuplicateModal
           existing={dupModal.existing[0]}
           newFile={file}
-          onReplace={() => doUpload(dupModal.existing)}
-          onAdd={() => doUpload(null)}
+          onReplace={() => { const f = file; setFile(null); doUpload(dupModal.existing, f); }}
+          onAdd={() => { const f = file; setFile(null); doUpload(null, f); }}
           onCancel={() => setDupModal(null)}
         />
       )}
@@ -1457,7 +1582,40 @@ function UploadForm({ type, profile, color, bgColor, onUploaded }) {
             </div>
             <div className="summary-item"><label style={{ color }}>날짜</label><value>{date}</value></div>
           </div>
+
           {msg && <div className={`alert alert-${msg.type}`}>{msg.text}</div>}
+
+          {/* 자사 양식 다운로드 버튼 */}
+          {parsedRows && lastInfo && type === '매출' && (
+            <div style={{
+              background: '#f0fdf4', border: '1.5px solid #86efac',
+              borderRadius: 10, padding: '14px 16px', marginBottom: 16,
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            }}>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: '#15803d' }}>
+                  ✅ 파싱 완료 — {parsedRows.length}개 상품
+                </div>
+                <div style={{ fontSize: 12, color: '#16a34a', marginTop: 2 }}>
+                  {lastInfo.vendor} · {lastInfo.date}
+                </div>
+              </div>
+              <button className="btn btn-sm"
+                style={{ background: '#16a34a', color: 'white', gap: 6, flexShrink: 0 }}
+                onClick={() => downloadSelfFormat(parsedRows, lastInfo.vendor, lastInfo.date)}>
+                <Icon name="download" style={{ width: 14, height: 14 }} />
+                자사 양식 다운로드
+              </button>
+            </div>
+          )}
+
+          {parsing && (
+            <div className="alert alert-info" style={{ marginBottom: 16 }}>
+              <span className="loading-spinner" style={{ borderColor: 'rgba(37,99,235,.3)', borderTopColor: '#2563eb' }} />
+              파일 파싱 중...
+            </div>
+          )}
+
           <div className={`drop-zone ${dragging ? 'drag-over' : ''} ${file ? 'has-file' : ''}`}
             onClick={() => fileRef.current?.click()}
             onDragOver={e => { e.preventDefault(); setDragging(true); }}
@@ -1473,6 +1631,7 @@ function UploadForm({ type, profile, color, bgColor, onUploaded }) {
             )}
             <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" style={{ display: 'none' }} onChange={handleFileInput} />
           </div>
+
           <div style={{ marginTop: 20, display: 'flex', gap: 10, justifyContent: 'space-between', alignItems: 'center' }}>
             <button className="btn btn-outline btn-sm" onClick={() => setStep(2)}>← 이전</button>
             <div style={{ display: 'flex', gap: 10 }}>
