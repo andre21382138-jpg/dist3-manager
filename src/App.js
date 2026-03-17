@@ -1211,7 +1211,6 @@ function DataView({ type, profile, color, bgColor, refreshKey }) {
       .eq('type', type)
       .order('date', { ascending: false })
       .order('created_at', { ascending: false });
-    if (!isAdmin) q = q.eq('user_id', profile.id);
     if (filterVendor)   q = q.eq('vendor', filterVendor);
     if (filterDateFrom) q = q.gte('date', filterDateFrom);
     if (filterDateTo)   q = q.lte('date', filterDateTo);
@@ -1411,7 +1410,6 @@ function HistoryPage({ profile }) {
   async function loadHistory() {
     setLoading(true);
     let q = supabase.from('uploads').select('*').order('created_at', { ascending: false });
-    if (!isAdmin) q = q.eq('user_id', profile.id);
     if (filterType)   q = q.eq('type', filterType);
     if (filterVendor) q = q.eq('vendor', filterVendor);
     const { data } = await q;
@@ -1435,7 +1433,7 @@ function HistoryPage({ profile }) {
     <div>
       <div className="page-header">
         <div className="page-title">업로드 이력</div>
-        <div className="page-sub">{isAdmin ? '전체 사용자의 업로드 이력입니다.' : '내 업로드 이력입니다.'}</div>
+        <div className="page-sub">전체 업로드 이력입니다.</div>
       </div>
 
       <div className="filter-bar">
