@@ -749,7 +749,7 @@ function AuthPage({ onAuth }) {
           <div className="auth-logo-badge">
             <Icon name="building" style={{ color: 'white' }} />
           </div>
-          <div className="auth-title">유통3팀 매입·매출 관리</div>
+          <div className="auth-title">할인점팀 매입·매출 관리</div>
           <div className="auth-sub">Distribution Management System</div>
         </div>
 
@@ -834,7 +834,7 @@ function Sidebar({ profile, currentPage, onNavigate, onLogout }) {
             <Icon name="building" style={{ color: 'white' }} />
           </div>
           <div>
-            <div className="sidebar-brand-name">유통3팀</div>
+            <div className="sidebar-brand-name">할인점팀</div>
             <div className="sidebar-brand-sub">매입·매출 관리시스템</div>
           </div>
         </div>
