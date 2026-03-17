@@ -921,6 +921,82 @@ function HomePage({ onNavigate }) {
   );
 }
 
+/* ─── DUPLICATE MODAL ───────────────────────────────────────────────── */
+function DuplicateModal({ existing, newFile, onReplace, onAdd, onCancel }) {
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999,
+    }}>
+      <div style={{
+        background: 'white', borderRadius: 16, padding: 32, maxWidth: 460, width: '90%',
+        boxShadow: '0 24px 64px rgba(0,0,0,.3)', animation: 'fadeUp .25s ease',
+      }}>
+        {/* 아이콘 */}
+        <div style={{
+          width: 52, height: 52, background: '#fef3c7', borderRadius: 50,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          margin: '0 auto 16px', fontSize: 24,
+        }}>⚠️</div>
+
+        <div style={{ textAlign: 'center', marginBottom: 20 }}>
+          <div style={{ fontSize: 17, fontWeight: 700, color: 'var(--navy)', marginBottom: 8 }}>
+            동일한 날짜 데이터가 있습니다
+          </div>
+          <div style={{ fontSize: 13, color: 'var(--gray4)', lineHeight: 1.6 }}>
+            <strong>{existing.vendor}</strong> · <strong>{existing.date}</strong> 에<br/>
+            이미 업로드된 파일이 있습니다.
+          </div>
+        </div>
+
+        {/* 기존 파일 정보 */}
+        <div style={{
+          background: '#fef3c7', borderRadius: 10, padding: '12px 16px',
+          marginBottom: 8, fontSize: 13,
+        }}>
+          <div style={{ color: '#92400e', fontWeight: 600, marginBottom: 4 }}>기존 파일</div>
+          <div style={{ color: '#78350f' }}>📄 {existing.file_name}</div>
+          <div style={{ color: '#92400e', fontSize: 12, marginTop: 2 }}>
+            업로드: {fmtDateTime(existing.created_at)} · {existing.user_name}
+          </div>
+        </div>
+
+        {/* 새 파일 정보 */}
+        <div style={{
+          background: '#f0fdf4', borderRadius: 10, padding: '12px 16px',
+          marginBottom: 24, fontSize: 13,
+        }}>
+          <div style={{ color: '#15803d', fontWeight: 600, marginBottom: 4 }}>새 파일</div>
+          <div style={{ color: '#166534' }}>📄 {newFile.name}</div>
+          <div style={{ color: '#15803d', fontSize: 12, marginTop: 2 }}>
+            {(newFile.size / 1024).toFixed(1)} KB
+          </div>
+        </div>
+
+        {/* 버튼 */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <button className="btn" style={{
+            background: '#ef4444', color: 'white', width: '100%', padding: '12px',
+            fontSize: 14, fontWeight: 600,
+          }} onClick={onReplace}>
+            🔄 기존 파일 삭제 후 교체
+          </button>
+          <button className="btn" style={{
+            background: 'var(--blue)', color: 'white', width: '100%', padding: '12px',
+            fontSize: 14, fontWeight: 600,
+          }} onClick={onAdd}>
+            ➕ 기존 파일 유지하고 추가
+          </button>
+          <button className="btn btn-outline" style={{ width: '100%', padding: '11px' }}
+            onClick={onCancel}>
+            취소
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ─── UPLOAD FORM ───────────────────────────────────────────────────── */
 function UploadForm({ type, profile, color, bgColor, onUploaded }) {
   const [step, setStep]         = useState(1);
@@ -930,12 +1006,13 @@ function UploadForm({ type, profile, color, bgColor, onUploaded }) {
   const [dragging, setDragging] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [msg, setMsg]           = useState(null);
+  const [dupModal, setDupModal] = useState(null); // 중복 모달 { existing }
   const fileRef                 = useRef();
 
   function todayStr() { return new Date().toISOString().split('T')[0]; }
 
   function resetFlow() {
-    setStep(1); setVendor(null); setDate(todayStr()); setFile(null); setMsg(null);
+    setStep(1); setVendor(null); setDate(todayStr()); setFile(null); setMsg(null); setDupModal(null);
   }
 
   function handleDrop(e) {
@@ -951,10 +1028,17 @@ function UploadForm({ type, profile, color, bgColor, onUploaded }) {
     setFile(f); setMsg(null);
   }
 
-  async function handleUpload() {
-    if (!file) return;
-    setUploading(true); setMsg(null);
+  // 실제 업로드 실행
+  async function doUpload(replaceTargets) {
+    setUploading(true); setDupModal(null); setMsg(null);
     try {
+      // 교체 모드: 기존 파일들 삭제
+      if (replaceTargets && replaceTargets.length > 0) {
+        const paths = replaceTargets.map(r => r.file_path);
+        await supabase.storage.from('excel-uploads').remove(paths);
+        await supabase.from('uploads').delete().in('id', replaceTargets.map(r => r.id));
+      }
+
       const ts   = Date.now();
       const path = `${type}/${vendor}/${date}/${ts}_${file.name}`;
       const { error: stErr } = await supabase.storage.from('excel-uploads').upload(path, file);
@@ -965,7 +1049,9 @@ function UploadForm({ type, profile, color, bgColor, onUploaded }) {
         file_name: file.name, file_path: path, file_size: file.size,
       });
       if (dbErr) throw dbErr;
-      setMsg({ type: 'success', text: `✅ 업로드 완료! (${vendor} / ${date})` });
+
+      const modeText = replaceTargets?.length > 0 ? '교체' : '추가';
+      setMsg({ type: 'success', text: `✅ 업로드 ${modeText} 완료! (${vendor} / ${date})` });
       setFile(null);
       if (fileRef.current) fileRef.current.value = '';
       if (onUploaded) onUploaded();
@@ -975,10 +1061,42 @@ function UploadForm({ type, profile, color, bgColor, onUploaded }) {
     setUploading(false);
   }
 
+  // 업로드 버튼 클릭 → 중복 체크
+  async function handleUpload() {
+    if (!file) return;
+    setMsg(null);
+
+    // 동일 판매처 + 날짜 기존 파일 조회
+    const { data: existing } = await supabase.from('uploads')
+      .select('*')
+      .eq('type', type)
+      .eq('vendor', vendor)
+      .eq('date', date);
+
+    if (existing && existing.length > 0) {
+      // 중복 있음 → 모달
+      setDupModal({ existing });
+    } else {
+      // 중복 없음 → 바로 업로드
+      doUpload(null);
+    }
+  }
+
   const steps = ['판매처 선택', '날짜 선택', '파일 업로드'];
 
   return (
     <div>
+      {/* 중복 모달 */}
+      {dupModal && (
+        <DuplicateModal
+          existing={dupModal.existing[0]}
+          newFile={file}
+          onReplace={() => doUpload(dupModal.existing)}
+          onAdd={() => doUpload(null)}
+          onCancel={() => setDupModal(null)}
+        />
+      )}
+
       {/* Step indicator */}
       <div className="flow-steps" style={{ marginBottom: 28 }}>
         {steps.map((s, i) => (
