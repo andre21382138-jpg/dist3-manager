@@ -1455,7 +1455,7 @@ function UploadForm({ type, profile, color, bgColor, onUploaded }) {
         await supabase.from('uploads').delete().in('id', replaceTargets.map(r => r.id));
       }
       const ts       = Date.now();
-      const safeName = targetFile.name.replace(/[^\w.\-]/g, '_');
+      const safeName = targetFile.name.replace(/[^a-zA-Z0-9._-]/g, '_');
       const path     = `${type}/${vendor}/${date}/${ts}_${safeName}`;
       const { error: stErr } = await supabase.storage.from('excel-uploads').upload(path, targetFile);
       if (stErr) throw stErr;
