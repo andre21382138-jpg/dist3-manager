@@ -1355,7 +1355,8 @@ async function parseVendorFile(file, vendor, date) {
         if (!r[1] || r[1] === null || r[1] === undefined) continue;
         const code = String(r[1]).trim();
         const qty  = Number(r[4]) || 0;
-        if (!code || code === 'NaN') continue;
+        // 바코드 형식(숫자 13자리)만 허용
+        if (!code.match(/^\d{10,14}$/)) continue;
         items.push({ code, qty });
       }
     }
@@ -1370,7 +1371,7 @@ async function parseVendorFile(file, vendor, date) {
     연도: year,
     월: month,
     일: day,
-    일자: dateObj,
+    일자: date,   // 문자열 그대로 (예: 2026-03-16)
     상품코드: code,
     판매수량: qty,
   }));
@@ -1387,16 +1388,6 @@ function downloadSelfFormat(rows, vendor, date) {
   ])];
 
   const ws = XLSX.utils.aoa_to_sheet(wsData);
-
-  // F열(일자) 날짜 서식 설정
-  const dateFormat = 'yyyy-mm-dd';
-  for (let i = 1; i < wsData.length; i++) {
-    const cellRef = XLSX.utils.encode_cell({ r: i, c: 4 });
-    if (ws[cellRef]) {
-      ws[cellRef].t = 'd';
-      ws[cellRef].z = dateFormat;
-    }
-  }
 
   // 열 너비
   ws['!cols'] = [
