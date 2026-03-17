@@ -6,7 +6,7 @@ const supabase = createClient(
   process.env.REACT_APP_SUPABASE_ANON_KEY
 );
 
-const ADMIN_EMAIL = process.env.REACT_APP_ADMIN_EMAIL;
+
 
 const VENDORS = ['홈플러스', '익스프레스', '롯데마트', '롯데슈퍼', '메가마트', '이마트', '에브리데이'];
 
@@ -959,7 +959,6 @@ function UploadPage({ type, profile }) {
     if (!file) return;
     setUploading(true); setMsg(null);
     try {
-      const ext = file.name.split('.').pop();
       const ts  = Date.now();
       const path = `${type}/${vendor}/${date}/${ts}_${file.name}`;
 
@@ -1141,7 +1140,7 @@ function HistoryPage({ profile }) {
 
   useEffect(() => {
     loadHistory();
-  }, [filterType, filterVendor]);
+  }, [filterType, filterVendor]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function loadHistory() {
     setLoading(true);
@@ -1254,7 +1253,7 @@ function AdminPage() {
   const [users, setUsers]   = useState([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => { loadUsers(); }, [tab]);
+  useEffect(() => { loadUsers(); }, [tab]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function loadUsers() {
     setLoading(true);
