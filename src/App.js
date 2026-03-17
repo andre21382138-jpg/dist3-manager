@@ -1300,7 +1300,6 @@ async function parseVendorFile(file, vendor, date) {
   const year  = date.substring(0, 4) + '년';
   const month = parseInt(date.substring(5, 7)) + '월';
   const day   = parseInt(date.substring(8, 10));
-  const dateObj = new Date(date);
 
   let items = []; // [{ code, qty }]
 
