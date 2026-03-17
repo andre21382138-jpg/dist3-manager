@@ -1303,6 +1303,25 @@ async function detectAndParseFile(file) {
 
   const results = []; // [{vendor, date, items:[{code,qty}]}]
 
+  // 날짜 추출 헬퍼
+  function extractDate(text) {
+    const m = text.match(/(\d{4}-\d{2}-\d{2})/);
+    return m ? m[1] : null;
+  }
+
+  // HTML 문자열에서 테이블 파싱 (DOMParser 사용)
+  function parseHtmlTables(htmlStr) {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(htmlStr, 'text/html');
+    const tables = doc.querySelectorAll('table');
+    return Array.from(tables).map(table => {
+      const rows = Array.from(table.querySelectorAll('tr'));
+      return rows.map(tr =>
+        Array.from(tr.querySelectorAll('td,th')).map(td => td.textContent.trim())
+      );
+    });
+  }
+
   try {
     if (isPK) {
       // xlsx 형식: 이마트/에브리데이 통합 or 메가마트
@@ -1317,7 +1336,6 @@ async function detectAndParseFile(file) {
         const date = rawDate.length === 8
           ? `${rawDate.slice(0,4)}-${rawDate.slice(4,6)}-${rawDate.slice(6,8)}`
           : null;
-
         const emMap = {}, edMap = {};
         for (let i = 1; i < rows.length; i++) {
           const r = rows[i];
@@ -1334,7 +1352,7 @@ async function detectAndParseFile(file) {
           results.push({ vendor: '에브리데이', date, items: Object.entries(edMap).map(([code,qty])=>({code,qty})) });
 
       } else {
-        // 메가마트 (날짜 없음)
+        // 메가마트
         const codeMap = {};
         for (let i = 1; i < rows.length; i++) {
           const r = rows[i];
@@ -1348,45 +1366,47 @@ async function detectAndParseFile(file) {
       }
 
     } else {
-      // HTML xls 형식 - 인코딩 감지
-      const headerSlice = new TextDecoder('euc-kr').decode(arrayBuffer.slice(0, 300));
-      const isEucKr = headerSlice.toLowerCase().includes('euc-kr');
+      // HTML xls 형식 - 인코딩 감지 후 텍스트로 읽기
+      let htmlStr;
+      // charset 확인
+      const utf8Peek = new TextDecoder('utf-8').decode(arrayBuffer.slice(0, 500));
+      if (utf8Peek.toLowerCase().includes('utf-8')) {
+        htmlStr = new TextDecoder('utf-8').decode(arrayBuffer);
+      } else {
+        htmlStr = new TextDecoder('euc-kr').decode(arrayBuffer);
+      }
 
-      const wb = XLSX.read(arrayBuffer, { type: 'array', codepage: isEucKr ? 949 : undefined });
-
-      // 헤더 시트에서 판매처/날짜 감지
-      const ws0 = wb.Sheets[wb.SheetNames[0]];
-      const headerRows = XLSX.utils.sheet_to_json(ws0, { header: 1 });
-      const headerText = headerRows.flat().map(v => String(v||'')).join(' ');
-
+      // 판매처 감지
       let vendor = null;
-      if (headerText.includes('롯데마트')) vendor = '롯데마트';
-      else if (headerText.includes('롯데슈퍼')) vendor = '롯데슈퍼';
-      else if (headerText.includes('Hyper')) vendor = '홈플러스';
-      else if (headerText.includes('Express')) vendor = '익스프레스';
+      if (htmlStr.includes('롯데마트')) vendor = '롯데마트';
+      else if (htmlStr.includes('롯데슈퍼')) vendor = '롯데슈퍼';
+      else if (htmlStr.includes('Hyper')) vendor = '홈플러스';
+      else if (htmlStr.includes('Express')) vendor = '익스프레스';
 
-      const dateMatch = headerText.match(/(\d{4}-\d{2}-\d{2})/);
-      const date = dateMatch ? dateMatch[1] : null;
+      // 날짜 감지
+      const date = extractDate(htmlStr);
 
-      // 데이터 시트 파싱
-      const dataSheet = wb.SheetNames.length > 1 ? wb.SheetNames[1] : wb.SheetNames[0];
-      const ws1 = wb.Sheets[dataSheet];
-      const dataRows = XLSX.utils.sheet_to_json(ws1, { header: 1 });
-
+      // DOMParser로 테이블 파싱
+      const tables = parseHtmlTables(htmlStr);
       const items = [];
+
       if (vendor === '롯데마트' || vendor === '롯데슈퍼') {
-        for (let i = 1; i < dataRows.length; i++) {
-          const r = dataRows[i];
-          const code = String(r[0]||'').trim();
+        // 두 번째 테이블, 첫 행은 헤더
+        const dataTable = tables.length > 1 ? tables[1] : tables[0];
+        for (let i = 1; i < dataTable.length; i++) {
+          const r = dataTable[i];
+          // col[0]=상품코드(내부), col[1]=판매코드(바코드), col[4]=판매수량
+          const code = String(r[0] || '').trim();
           if (!code.startsWith('88')) continue;
-          items.push({ code, qty: Number(r[4])||0 });
+          items.push({ code, qty: Number(String(r[4]||'').replace(/,/g,'')) || 0 });
         }
       } else if (vendor === '홈플러스' || vendor === '익스프레스') {
-        for (let i = 1; i < dataRows.length; i++) {
-          const r = dataRows[i];
-          const code = String(r[1]||'').trim();
+        const dataTable = tables.length > 1 ? tables[1] : tables[0];
+        for (let i = 1; i < dataTable.length; i++) {
+          const r = dataTable[i];
+          const code = String(r[1] || '').trim();
           if (!code.match(/^\d{10,14}$/) || !code.startsWith('88')) continue;
-          items.push({ code, qty: Number(r[4])||0 });
+          items.push({ code, qty: Number(String(r[4]||'').replace(/,/g,'')) || 0 });
         }
       }
 
