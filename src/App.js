@@ -1305,7 +1305,7 @@ function DataView({ type, profile, color, bgColor, refreshKey }) {
                 <th>판매처</th>
                 <th>파일명</th>
                 <th>크기</th>
-                {isAdmin && <th>업로더</th>}
+                <th>업로더</th>
                 <th>업로드 시각</th>
                 <th></th>
               </tr>
@@ -1327,7 +1327,7 @@ function DataView({ type, profile, color, bgColor, refreshKey }) {
                   <td style={{ fontSize: 12, color: 'var(--gray3)' }}>
                     {row.file_size ? `${(row.file_size/1024).toFixed(0)} KB` : '-'}
                   </td>
-                  {isAdmin && <td style={{ fontSize: 13 }}>{row.user_name}</td>}
+                  <td style={{ fontSize: 13 }}>{row.user_name}</td>
                   <td style={{ fontSize: 12, color: 'var(--gray3)', fontVariantNumeric: 'tabular-nums' }}>
                     {fmtDateTime(row.created_at)}
                   </td>
@@ -1465,7 +1465,7 @@ function HistoryPage({ profile }) {
                 <th>판매처</th>
                 <th>날짜</th>
                 <th>파일명</th>
-                {isAdmin && <th>업로더</th>}
+                <th>업로더</th>
                 <th>업로드 시각</th>
                 <th></th>
               </tr>
@@ -1487,7 +1487,7 @@ function HistoryPage({ profile }) {
                     <Icon name="file" style={{ width: 14, height: 14, marginRight: 4, verticalAlign: 'middle' }} />
                     {row.file_name}
                   </td>
-                  {isAdmin && <td style={{ fontSize: 13 }}>{row.user_name}</td>}
+                  <td style={{ fontSize: 13 }}>{row.user_name}</td>
                   <td style={{ fontSize: 13, color: 'var(--gray3)', fontVariantNumeric: 'tabular-nums' }}>{fmtDateTime(row.created_at)}</td>
                   <td>
                     <div style={{ display: 'flex', gap: 6 }}>
