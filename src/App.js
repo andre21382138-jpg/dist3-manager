@@ -921,20 +921,18 @@ function HomePage({ onNavigate }) {
   );
 }
 
-/* ─── UPLOAD PAGE ──────────────────────────────────────────────────── */
-function UploadPage({ type, profile }) {
-  const [step, setStep]       = useState(1); // 1=vendor, 2=date, 3=file
-  const [vendor, setVendor]   = useState(null);
-  const [date, setDate]       = useState(todayStr());
-  const [file, setFile]       = useState(null);
+/* ─── UPLOAD FORM ───────────────────────────────────────────────────── */
+function UploadForm({ type, profile, color, bgColor, onUploaded }) {
+  const [step, setStep]         = useState(1);
+  const [vendor, setVendor]     = useState(null);
+  const [date, setDate]         = useState(todayStr());
+  const [file, setFile]         = useState(null);
   const [dragging, setDragging] = useState(false);
   const [uploading, setUploading] = useState(false);
-  const [msg, setMsg]         = useState(null);
-  const fileRef               = useRef();
+  const [msg, setMsg]           = useState(null);
+  const fileRef                 = useRef();
 
-  function todayStr() {
-    return new Date().toISOString().split('T')[0];
-  }
+  function todayStr() { return new Date().toISOString().split('T')[0]; }
 
   function resetFlow() {
     setStep(1); setVendor(null); setDate(todayStr()); setFile(null); setMsg(null);
@@ -945,13 +943,11 @@ function UploadPage({ type, profile }) {
     const f = e.dataTransfer.files[0];
     if (f) acceptFile(f);
   }
-  function handleFileInput(e) {
-    const f = e.target.files[0];
-    if (f) acceptFile(f);
-  }
+  function handleFileInput(e) { const f = e.target.files[0]; if (f) acceptFile(f); }
   function acceptFile(f) {
-    const ok = f.name.match(/\.(xlsx|xls|csv)$/i);
-    if (!ok) { setMsg({ type: 'error', text: 'Excel 파일(.xlsx, .xls, .csv)만 업로드 가능합니다.' }); return; }
+    if (!f.name.match(/\.(xlsx|xls|csv)$/i)) {
+      setMsg({ type: 'error', text: 'Excel 파일(.xlsx, .xls, .csv)만 업로드 가능합니다.' }); return;
+    }
     setFile(f); setMsg(null);
   }
 
@@ -959,48 +955,30 @@ function UploadPage({ type, profile }) {
     if (!file) return;
     setUploading(true); setMsg(null);
     try {
-      const ts  = Date.now();
+      const ts   = Date.now();
       const path = `${type}/${vendor}/${date}/${ts}_${file.name}`;
-
       const { error: stErr } = await supabase.storage.from('excel-uploads').upload(path, file);
       if (stErr) throw stErr;
-
       const { error: dbErr } = await supabase.from('uploads').insert({
-        user_id:   profile.id,
-        user_name: profile.name,
-        type,
-        vendor,
-        date,
-        file_name: file.name,
-        file_path: path,
-        file_size: file.size,
+        user_id: profile.id, user_name: profile.name,
+        type, vendor, date,
+        file_name: file.name, file_path: path, file_size: file.size,
       });
       if (dbErr) throw dbErr;
-
       setMsg({ type: 'success', text: `✅ 업로드 완료! (${vendor} / ${date})` });
       setFile(null);
       if (fileRef.current) fileRef.current.value = '';
+      if (onUploaded) onUploaded();
     } catch (err) {
       setMsg({ type: 'error', text: `업로드 실패: ${err.message}` });
     }
     setUploading(false);
   }
 
-  const color = type === '매입' ? '#2563eb' : '#22c55e';
-  const bgColor = type === '매입' ? '#eff6ff' : '#f0fdf4';
-
   const steps = ['판매처 선택', '날짜 선택', '파일 업로드'];
 
   return (
     <div>
-      <div className="page-header">
-        <div className="page-title" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <span style={{ background: bgColor, color, padding: '2px 12px', borderRadius: 20, fontSize: 14 }}>{type}</span>
-          파일 업로드
-        </div>
-        <div className="page-sub">판매처 → 날짜 → 파일 순서로 진행하세요.</div>
-      </div>
-
       {/* Step indicator */}
       <div className="flow-steps" style={{ marginBottom: 28 }}>
         {steps.map((s, i) => (
@@ -1018,101 +996,66 @@ function UploadPage({ type, profile }) {
         ))}
       </div>
 
-      {/* STEP 1: Vendor */}
+      {/* STEP 1 */}
       {step === 1 && (
         <div className="card">
-          <div className="card-title">
-            <Icon name="building" style={{ width: 18, height: 18, color }} />
-            판매처를 선택하세요
-          </div>
+          <div className="card-title"><Icon name="building" style={{ width: 18, height: 18, color }} />판매처를 선택하세요</div>
           <div className="vendor-grid">
             {VENDORS.map(v => (
               <button key={v} className={`vendor-btn ${vendor === v ? 'selected' : ''}`}
                 style={{ '--vc': VENDOR_COLORS[v] }}
-                onClick={() => { setVendor(v); setStep(2); }}>
-                {v}
-              </button>
+                onClick={() => { setVendor(v); setStep(2); }}>{v}</button>
             ))}
           </div>
         </div>
       )}
 
-      {/* STEP 2: Date */}
+      {/* STEP 2 */}
       {step === 2 && (
         <div className="card">
-          <div className="card-title">
-            <Icon name="history" style={{ width: 18, height: 18, color }} />
-            {type} 날짜를 선택하세요
-          </div>
+          <div className="card-title"><Icon name="history" style={{ width: 18, height: 18, color }} />{type} 날짜를 선택하세요</div>
           <div className="date-input-wrap">
             <label className="form-label">날짜</label>
-            <input className="form-input" type="date" value={date}
-              onChange={e => setDate(e.target.value)} />
+            <input className="form-input" type="date" value={date} onChange={e => setDate(e.target.value)} />
           </div>
           <div style={{ marginTop: 20, display: 'flex', gap: 10 }}>
             <button className="btn btn-outline btn-sm" onClick={() => setStep(1)}>← 이전</button>
             <button className="btn btn-sm" style={{ background: color, color: 'white' }}
-              onClick={() => setStep(3)} disabled={!date}>
-              다음 →
-            </button>
+              onClick={() => setStep(3)} disabled={!date}>다음 →</button>
           </div>
         </div>
       )}
 
-      {/* STEP 3: File Upload */}
+      {/* STEP 3 */}
       {step === 3 && (
         <div className="card">
-          <div className="card-title">
-            <Icon name="upload" style={{ width: 18, height: 18, color }} />
-            엑셀 파일을 업로드하세요
-          </div>
-
-          {/* Summary */}
+          <div className="card-title"><Icon name="upload" style={{ width: 18, height: 18, color }} />엑셀 파일을 업로드하세요</div>
           <div className="summary-box" style={{ background: bgColor }}>
-            <div className="summary-item">
-              <label style={{ color }}>구분</label>
-              <value>{type}</value>
-            </div>
+            <div className="summary-item"><label style={{ color }}>구분</label><value>{type}</value></div>
             <div className="summary-item">
               <label style={{ color }}>판매처</label>
               <value style={{ color: VENDOR_COLORS[vendor] }}>
                 <span className="vendor-dot" style={{ background: VENDOR_COLORS[vendor] }} />{vendor}
               </value>
             </div>
-            <div className="summary-item">
-              <label style={{ color }}>날짜</label>
-              <value>{date}</value>
-            </div>
+            <div className="summary-item"><label style={{ color }}>날짜</label><value>{date}</value></div>
           </div>
-
           {msg && <div className={`alert alert-${msg.type}`}>{msg.text}</div>}
-
-          {/* Drop Zone */}
-          <div
-            className={`drop-zone ${dragging ? 'drag-over' : ''} ${file ? 'has-file' : ''}`}
+          <div className={`drop-zone ${dragging ? 'drag-over' : ''} ${file ? 'has-file' : ''}`}
             onClick={() => fileRef.current?.click()}
             onDragOver={e => { e.preventDefault(); setDragging(true); }}
             onDragLeave={() => setDragging(false)}
-            onDrop={handleDrop}
-          >
+            onDrop={handleDrop}>
             <div className="drop-icon">
               <Icon name={file ? 'file' : 'upload'} style={{ width: 48, height: 48 }} />
             </div>
             {file ? (
-              <>
-                <div className="drop-title">{file.name}</div>
-                <div className="drop-sub">{(file.size / 1024).toFixed(1)} KB · 클릭하여 변경</div>
-              </>
+              <><div className="drop-title">{file.name}</div><div className="drop-sub">{(file.size/1024).toFixed(1)} KB · 클릭하여 변경</div></>
             ) : (
-              <>
-                <div className="drop-title">파일을 여기에 드래그하거나 클릭하여 선택</div>
-                <div className="drop-sub">.xlsx, .xls, .csv 파일 지원</div>
-              </>
+              <><div className="drop-title">파일을 여기에 드래그하거나 클릭하여 선택</div><div className="drop-sub">.xlsx, .xls, .csv 파일 지원</div></>
             )}
-            <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv"
-              style={{ display: 'none' }} onChange={handleFileInput} />
+            <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" style={{ display: 'none' }} onChange={handleFileInput} />
           </div>
-
           <div style={{ marginTop: 20, display: 'flex', gap: 10, justifyContent: 'space-between', alignItems: 'center' }}>
             <button className="btn btn-outline btn-sm" onClick={() => setStep(2)}>← 이전</button>
             <div style={{ display: 'flex', gap: 10 }}>
@@ -1124,6 +1067,208 @@ function UploadPage({ type, profile }) {
             </div>
           </div>
         </div>
+      )}
+    </div>
+  );
+}
+
+/* ─── DATA VIEW ─────────────────────────────────────────────────────── */
+function DataView({ type, profile, color, bgColor, refreshKey }) {
+  const [rows, setRows]           = useState([]);
+  const [loading, setLoading]     = useState(true);
+  const [filterVendor, setFilterVendor] = useState('');
+  const [filterDateFrom, setFilterDateFrom] = useState('');
+  const [filterDateTo, setFilterDateTo]     = useState('');
+
+  const isAdmin = profile?.role === 'admin';
+
+  useEffect(() => { loadData(); }, [filterVendor, filterDateFrom, filterDateTo, refreshKey]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function loadData() {
+    setLoading(true);
+    let q = supabase.from('uploads').select('*')
+      .eq('type', type)
+      .order('date', { ascending: false })
+      .order('created_at', { ascending: false });
+    if (!isAdmin) q = q.eq('user_id', profile.id);
+    if (filterVendor)   q = q.eq('vendor', filterVendor);
+    if (filterDateFrom) q = q.gte('date', filterDateFrom);
+    if (filterDateTo)   q = q.lte('date', filterDateTo);
+    const { data } = await q;
+    setRows(data || []);
+    setLoading(false);
+  }
+
+  async function handleDownload(row) {
+    const { data } = await supabase.storage.from('excel-uploads').createSignedUrl(row.file_path, 60);
+    if (data?.signedUrl) window.open(data.signedUrl, '_blank');
+  }
+
+  async function handleDelete(row) {
+    if (!window.confirm(`"${row.file_name}" 파일을 삭제하시겠습니까?`)) return;
+    await supabase.storage.from('excel-uploads').remove([row.file_path]);
+    await supabase.from('uploads').delete().eq('id', row.id);
+    loadData();
+  }
+
+  // 판매처별 건수 집계
+  const vendorCounts = VENDORS.map(v => ({
+    vendor: v,
+    count: rows.filter(r => r.vendor === v).length,
+  })).filter(v => v.count > 0);
+
+  return (
+    <div>
+      {/* 판매처별 요약 카드 */}
+      {!filterVendor && vendorCounts.length > 0 && (
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 20 }}>
+          {vendorCounts.map(({ vendor, count }) => (
+            <div key={vendor}
+              onClick={() => setFilterVendor(vendor)}
+              style={{
+                background: 'white', border: `2px solid ${VENDOR_COLORS[vendor] || '#e5e9ef'}`,
+                borderRadius: 10, padding: '10px 16px', cursor: 'pointer',
+                display: 'flex', alignItems: 'center', gap: 8, boxShadow: 'var(--shadow)',
+                transition: 'transform .15s',
+              }}
+              onMouseEnter={e => e.currentTarget.style.transform = 'translateY(-2px)'}
+              onMouseLeave={e => e.currentTarget.style.transform = ''}>
+              <span className="vendor-dot" style={{ background: VENDOR_COLORS[vendor], width: 10, height: 10 }} />
+              <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--navy)' }}>{vendor}</span>
+              <span style={{
+                background: `${VENDOR_COLORS[vendor]}20`, color: VENDOR_COLORS[vendor],
+                fontSize: 12, fontWeight: 700, padding: '1px 8px', borderRadius: 10,
+              }}>{count}건</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* 필터 바 */}
+      <div className="filter-bar">
+        <select className="filter-select" value={filterVendor} onChange={e => setFilterVendor(e.target.value)}>
+          <option value="">전체 판매처</option>
+          {VENDORS.map(v => <option key={v}>{v}</option>)}
+        </select>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <input type="date" className="filter-select" value={filterDateFrom}
+            onChange={e => setFilterDateFrom(e.target.value)} placeholder="시작일" />
+          <span style={{ color: 'var(--gray3)', fontSize: 13 }}>~</span>
+          <input type="date" className="filter-select" value={filterDateTo}
+            onChange={e => setFilterDateTo(e.target.value)} placeholder="종료일" />
+        </div>
+        {(filterVendor || filterDateFrom || filterDateTo) && (
+          <button className="btn btn-outline btn-sm"
+            onClick={() => { setFilterVendor(''); setFilterDateFrom(''); setFilterDateTo(''); }}>
+            필터 초기화
+          </button>
+        )}
+        <span style={{ marginLeft: 'auto', fontSize: 13, color: 'var(--gray3)' }}>
+          총 <strong style={{ color: 'var(--navy)' }}>{rows.length}</strong>건
+        </span>
+      </div>
+
+      {/* 테이블 */}
+      <div className="table-wrap">
+        {loading ? (
+          <div style={{ textAlign: 'center', padding: 48, color: 'var(--gray3)' }}>불러오는 중...</div>
+        ) : rows.length === 0 ? (
+          <div className="empty-state">
+            <Icon name="file" style={{ width: 48, height: 48 }} />
+            <p>업로드된 데이터가 없습니다.</p>
+          </div>
+        ) : (
+          <table>
+            <thead>
+              <tr>
+                <th>날짜</th>
+                <th>판매처</th>
+                <th>파일명</th>
+                <th>크기</th>
+                {isAdmin && <th>업로더</th>}
+                <th>업로드 시각</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map(row => (
+                <tr key={row.id}>
+                  <td style={{ fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{row.date}</td>
+                  <td>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                      <span className="vendor-dot" style={{ background: VENDOR_COLORS[row.vendor] || '#94a3b8' }} />
+                      <span style={{ fontWeight: 500 }}>{row.vendor}</span>
+                    </span>
+                  </td>
+                  <td style={{ maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 13, color: 'var(--gray4)' }}>
+                    <Icon name="file" style={{ width: 13, height: 13, marginRight: 4, verticalAlign: 'middle' }} />
+                    {row.file_name}
+                  </td>
+                  <td style={{ fontSize: 12, color: 'var(--gray3)' }}>
+                    {row.file_size ? `${(row.file_size/1024).toFixed(0)} KB` : '-'}
+                  </td>
+                  {isAdmin && <td style={{ fontSize: 13 }}>{row.user_name}</td>}
+                  <td style={{ fontSize: 12, color: 'var(--gray3)', fontVariantNumeric: 'tabular-nums' }}>
+                    {fmtDateTime(row.created_at)}
+                  </td>
+                  <td>
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      <button className="btn btn-sm btn-blue-light" onClick={() => handleDownload(row)} title="다운로드">
+                        <Icon name="download" style={{ width: 14, height: 14 }} />
+                      </button>
+                      {(isAdmin || row.user_id === profile?.id) && (
+                        <button className="btn btn-sm btn-danger" onClick={() => handleDelete(row)} title="삭제">
+                          <Icon name="x" style={{ width: 14, height: 14 }} />
+                        </button>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ─── UPLOAD PAGE ──────────────────────────────────────────────────── */
+function UploadPage({ type, profile }) {
+  const [tab, setTab]         = useState('upload');
+  const [refreshKey, setRefreshKey] = useState(0);
+
+  const color   = type === '매입' ? '#2563eb' : '#22c55e';
+  const bgColor = type === '매입' ? '#eff6ff' : '#f0fdf4';
+
+  function handleUploaded() {
+    setRefreshKey(k => k + 1);
+  }
+
+  return (
+    <div>
+      <div className="page-header">
+        <div className="page-title" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span style={{ background: bgColor, color, padding: '2px 12px', borderRadius: 20, fontSize: 14 }}>{type}</span>
+          {type} 관리
+        </div>
+      </div>
+
+      {/* 탭 */}
+      <div className="admin-tabs" style={{ marginBottom: 24 }}>
+        <button className={`admin-tab ${tab === 'upload' ? 'active' : ''}`} onClick={() => setTab('upload')}>
+          <Icon name="upload" style={{ width: 15, height: 15 }} /> 파일 업로드
+        </button>
+        <button className={`admin-tab ${tab === 'data' ? 'active' : ''}`} onClick={() => setTab('data')}>
+          <Icon name="grid" style={{ width: 15, height: 15 }} /> 데이터 조회
+        </button>
+      </div>
+
+      {tab === 'upload' && (
+        <UploadForm type={type} profile={profile} color={color} bgColor={bgColor} onUploaded={handleUploaded} />
+      )}
+      {tab === 'data' && (
+        <DataView type={type} profile={profile} color={color} bgColor={bgColor} refreshKey={refreshKey} />
       )}
     </div>
   );
