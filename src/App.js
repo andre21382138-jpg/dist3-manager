@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import * as XLSX from 'xlsx';
+import ExcelJS from 'exceljs';
 
 const supabase = createClient(
   process.env.REACT_APP_SUPABASE_URL,
@@ -1377,25 +1378,60 @@ async function parseVendorFile(file, vendor, date) {
 }
 
 /* ─── 자사 양식 다운로드 ────────────────────────────────────────────── */
-function downloadSelfFormat(rows, vendor, date) {
-  const wb = XLSX.utils.book_new();
-  const header = ['업체명', '연도', '월', '일', '일자', '상품코드', '판매수량'];
+async function downloadSelfFormat(rows, vendor, date) {
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet('매출내역');
 
-  const wsData = [header, ...rows.map(r => [
-    r.업체명, r.연도, r.월, r.일,
-    r.일자, r.상품코드, r.판매수량,
-  ])];
-
-  const ws = XLSX.utils.aoa_to_sheet(wsData);
-
-  // 열 너비
-  ws['!cols'] = [
-    { wch: 12 }, { wch: 8 }, { wch: 6 }, { wch: 5 },
-    { wch: 14 }, { wch: 16 }, { wch: 10 },
+  // 열 너비 설정
+  ws.columns = [
+    { width: 12 }, // A 업체명
+    { width: 8  }, // B 연도
+    { width: 6  }, // C 월
+    { width: 5  }, // D 일
+    { width: 14 }, // E 일자
+    { width: 18 }, // F 상품코드
+    { width: 12 }, // G 판매수량
   ];
 
-  XLSX.utils.book_append_sheet(wb, ws, '매출내역');
-  XLSX.writeFile(wb, `매출내역_${vendor}_${date}.xlsx`);
+  const FILL = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFCCFF' } };
+  const FONT = { name: '맑은 고딕', size: 10 };
+  const CENTER = { horizontal: 'center' };
+  const ACCT = '_-* #,##0_-;\\-* #,##0_-;_-* "-"_-;_-@_-';
+
+  rows.forEach(r => {
+    const row = ws.addRow([
+      r.업체명, r.연도, r.월, r.일, r.일자, r.상품코드, r.판매수량
+    ]);
+
+    row.eachCell({ includeEmpty: false }, (cell, colNum) => {
+      cell.font = FONT;
+      cell.fill = FILL;
+
+      if (colNum <= 5) {
+        // 업체명~일자: 중앙정렬
+        cell.alignment = CENTER;
+      }
+      if (colNum === 6) {
+        // 상품코드: 텍스트
+        cell.numFmt = '@';
+        cell.value = String(r.상품코드);
+      }
+      if (colNum === 7) {
+        // 판매수량: 회계
+        cell.numFmt = ACCT;
+      }
+    });
+  });
+
+  // 버퍼 → Blob → 다운로드
+  const buffer = await wb.xlsx.writeBuffer();
+  const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `매출내역_${vendor}_${date}.xlsx`;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 /* ─── UPLOAD FORM ───────────────────────────────────────────────────── */
