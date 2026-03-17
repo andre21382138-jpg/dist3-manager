@@ -941,7 +941,7 @@ function NoticeBoard({ profile }) {
     } else {
       await supabase.from('notices').insert({
         title: form.title, content: form.content, pinned: form.pinned,
-        author_id: profile.id, author_name: profile.name,
+        author_id: profile.id, author_name: '관리자',
       });
     }
     setSaving(false);
