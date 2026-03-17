@@ -1057,28 +1057,31 @@ function UploadForm({ type, profile, color, bgColor, onUploaded }) {
       if (onUploaded) onUploaded();
     } catch (err) {
       setMsg({ type: 'error', text: `업로드 실패: ${err.message}` });
+    } finally {
+      setUploading(false);
     }
-    setUploading(false);
   }
 
   // 업로드 버튼 클릭 → 중복 체크
   async function handleUpload() {
-    if (!file) return;
+    if (!file || uploading) return;
     setMsg(null);
 
-    // 동일 판매처 + 날짜 기존 파일 조회
-    const { data: existing } = await supabase.from('uploads')
-      .select('*')
-      .eq('type', type)
-      .eq('vendor', vendor)
-      .eq('date', date);
+    try {
+      // 동일 판매처 + 날짜 기존 파일 조회
+      const { data: existing } = await supabase.from('uploads')
+        .select('*')
+        .eq('type', type)
+        .eq('vendor', vendor)
+        .eq('date', date);
 
-    if (existing && existing.length > 0) {
-      // 중복 있음 → 모달
-      setDupModal({ existing });
-    } else {
-      // 중복 없음 → 바로 업로드
-      doUpload(null);
+      if (existing && existing.length > 0) {
+        setDupModal({ existing });
+      } else {
+        doUpload(null);
+      }
+    } catch (err) {
+      setMsg({ type: 'error', text: `오류: ${err.message}` });
     }
   }
 
@@ -1180,7 +1183,7 @@ function UploadForm({ type, profile, color, bgColor, onUploaded }) {
               <button className="btn btn-outline btn-sm" onClick={resetFlow}>처음부터</button>
               <button className="btn btn-sm" style={{ background: color, color: 'white', minWidth: 120 }}
                 disabled={!file || uploading} onClick={handleUpload}>
-                {uploading ? <span className="loading-spinner" /> : '업로드'}
+                {uploading ? <span className="loading-spinner" /> : `업로드${file ? '' : ' (파일 선택 필요)'}`}
               </button>
             </div>
           </div>
