@@ -1395,8 +1395,8 @@ async function detectAndParseFile(file) {
         const dataTable = tables.length > 1 ? tables[1] : tables[0];
         for (let i = 1; i < dataTable.length; i++) {
           const r = dataTable[i];
-          // col[0]=상품코드(내부), col[1]=판매코드(바코드), col[4]=판매수량
-          const code = String(r[0] || '').trim();
+          // col[0]=상품코드(내부), col[1]=판매코드(바코드88시작), col[4]=판매수량
+          const code = String(r[1] || '').trim();
           if (!code.startsWith('88')) continue;
           items.push({ code, qty: Number(String(r[4]||'').replace(/,/g,'')) || 0 });
         }
