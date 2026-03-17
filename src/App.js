@@ -1454,9 +1454,11 @@ function UploadForm({ type, profile, color, bgColor, onUploaded }) {
         await supabase.storage.from('excel-uploads').remove(paths);
         await supabase.from('uploads').delete().in('id', replaceTargets.map(r => r.id));
       }
-      const ts       = Date.now();
-      const safeName = targetFile.name.replace(/[^a-zA-Z0-9._-]/g, '_');
-      const path     = `${type}/${vendor}/${date}/${ts}_${safeName}`;
+      const ts        = Date.now();
+      const safeName  = targetFile.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+      const safeType  = type === '매입' ? 'purchase' : 'sales';
+      const safeVendor = vendor.replace(/[^a-zA-Z0-9._-]/g, '_');
+      const path      = `${safeType}/${safeVendor}/${date}/${ts}_${safeName}`;
       const { error: stErr } = await supabase.storage.from('excel-uploads').upload(path, targetFile);
       if (stErr) throw stErr;
       const { error: dbErr } = await supabase.from('uploads').insert({
