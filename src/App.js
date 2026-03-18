@@ -2015,16 +2015,6 @@ function PurchaseDataView({ refreshKey }) {
     const key = `${r.vendor}|${r.date}`;
     if (!summaryMap[key]) summaryMap[key] = { vendor: r.vendor, date: r.date };
   });
-  const allKeys = Object.keys(summaryMap);
-
-  // 선택된 행의 날짜/판매처 키
-  const selectedKeys = new Set(
-    [...selected].map(id => {
-      const r = rows.find(row => row.id === id);
-      return r ? `${r.vendor}|${r.date}` : null;
-    }).filter(Boolean)
-  );
-
   function toggleSelect(id) {
     setSelected(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
   }
