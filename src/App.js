@@ -1348,7 +1348,6 @@ async function detectAndParseFile(file, dataType = '매출') {
   const arrayBuffer = await file.arrayBuffer();
   const uint8 = new Uint8Array(arrayBuffer.slice(0, 4));
   const isPK = uint8[0] === 0x50 && uint8[1] === 0x4B;
-  console.log('파싱 시작:', file.name, 'isPK:', isPK, 'dataType:', dataType, 'size:', arrayBuffer.byteLength);
 
   const results = [];
 
@@ -1481,9 +1480,7 @@ async function detectAndParseFile(file, dataType = '매출') {
 
       const vendor = detectVendorFromText(htmlStr);
       const date   = extractDate(htmlStr);
-      console.log('HTML 파싱 - vendor:', vendor, 'date:', date, 'htmlStr 앞100:', htmlStr.substring(0,100));
       const tables = parseHtmlTables(htmlStr);
-      console.log('테이블 수:', tables.length, tables.map(t => t.length + '행'));
       const items  = [];
 
       if (dataType === '매출') {
@@ -1544,10 +1541,6 @@ async function detectAndParseFile(file, dataType = '매출') {
             items.push(...Object.entries(hyperMap).map(([code,qty]) => ({ code, qty, amt: hyperAmt[code]||0, _v: '홈플러스' })));
           if (Object.keys(expMap).length > 0)
             items.push(...Object.entries(expMap).map(([code,qty]) => ({ code, qty, amt: expAmt[code]||0, _v: '익스프레스' })));
-          console.log('홈플러스/익스프레스 파싱 결과 - hyper:', Object.keys(hyperMap).length, 'exp:', Object.keys(expMap).length, '전체items:', items.length);
-          // 샘플 행 확인
-          const dt2 = tables.length > 1 ? tables[1] : tables[0];
-          console.log('데이터 테이블 1~3행:', dt2.slice(0,3));
         }
       }
 
@@ -1564,7 +1557,6 @@ async function detectAndParseFile(file, dataType = '매출') {
       }
     }
   } catch (e) {
-    console.error('detectAndParseFile 오류:', e);
     throw new Error(`파싱 실패: ${e.message}`);
   }
 
@@ -1657,7 +1649,6 @@ function BulkUploadForm({ type, profile, onUploaded }) {
         }
         if (parsed.length === 0) results.push({ file, vendor: '감지 실패', date: '', items: [], needsDate: false, error: '판매처를 인식할 수 없습니다.' });
       } catch (e) {
-        console.error('파싱 오류:', file.name, e);
         results.push({ file, vendor: '감지 실패', date: '', items: [], needsDate: false, error: e.message });
       }
     }
@@ -2367,11 +2358,6 @@ function ProductsPage() {
       const sheetName = wb.SheetNames.find(s => s.includes('상품리스트')) || wb.SheetNames[0];
       const ws = wb.Sheets[sheetName];
       const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', blankrows: true, raw: true });
-      console.log('시트명:', sheetName, '총 행수:', rows.length);
-      console.log('2행(헤더):', rows[1]);
-      console.log('3행(첫데이터):', rows[2]);
-      console.log('4행:', rows[3]);
-      console.log('전체 88코드 수:', rows.slice(2).filter(r => String(r[3]||'').startsWith('88')).length);
 
       // 2행이 헤더, 3행부터 데이터
       const upsertRows = [];
