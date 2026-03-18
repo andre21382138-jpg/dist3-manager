@@ -2177,7 +2177,7 @@ function UploadPage({ type, profile }) {
           <Icon name="upload" style={{width:15,height:15}} /> {isSales ? '일괄 업로드' : '파일 업로드'}
         </button>
         <button className={`admin-tab ${tab==='data'?'active':''}`} onClick={() => setTab('data')}>
-          <Icon name="grid" style={{width:15,height:15}} /> 데이터 조회
+          <Icon name="grid" style={{width:15,height:15}} /> 양식변환/다운로드
         </button>
       </div>
 
