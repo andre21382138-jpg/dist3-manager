@@ -1544,6 +1544,10 @@ async function detectAndParseFile(file, dataType = '매출') {
             items.push(...Object.entries(hyperMap).map(([code,qty]) => ({ code, qty, amt: hyperAmt[code]||0, _v: '홈플러스' })));
           if (Object.keys(expMap).length > 0)
             items.push(...Object.entries(expMap).map(([code,qty]) => ({ code, qty, amt: expAmt[code]||0, _v: '익스프레스' })));
+          console.log('홈플러스/익스프레스 파싱 결과 - hyper:', Object.keys(hyperMap).length, 'exp:', Object.keys(expMap).length, '전체items:', items.length);
+          // 샘플 행 확인
+          const dt2 = tables.length > 1 ? tables[1] : tables[0];
+          console.log('데이터 테이블 1~3행:', dt2.slice(0,3));
         }
       }
 
