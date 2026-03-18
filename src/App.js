@@ -693,6 +693,7 @@ const Icon = ({ name, style }) => {
     arrow:     <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3"/>,
     building:  <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 21h16.5M4.5 3h15l.75 3.75H3.75L4.5 3zM4.5 6.75h15v13.5h-15V6.75z"/>,
     grid:      <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z"/>,
+    help:      <path strokeLinecap="round" strokeLinejoin="round" d="M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442-.745.361-1.45.999-1.45 1.827v.75M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9 5.25h.008v.008H12v-.008z"/>,
   };
   return (
     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"
@@ -890,6 +891,11 @@ function Sidebar({ profile, currentPage, onNavigate, onLogout }) {
             <div className="user-role">{profile?.role === 'admin' ? '관리자' : (profile?.dept || '일반사용자')}</div>
           </div>
         </div>
+        <div className="nav-section-label">도움말</div>
+        <button className={`nav-item ${currentPage==='help' ? 'active' : ''}`} onClick={() => onNavigate('help')}>
+          <Icon name="help" /> 사용방법
+        </button>
+
         <button className="nav-item" onClick={onLogout}>
           <Icon name="logout" /> 로그아웃
         </button>
@@ -3026,6 +3032,641 @@ function PurchaseQueryPage() {
     </div>
   );
 }
+/* ─── HELP PAGE ─────────────────────────────────────────────────────── */
+
+/* 목업 프레임 — 브라우저 창처럼 보이는 컨테이너 */
+function MockupFrame({ title, children }) {
+  return (
+    <div style={{ border:'2px solid var(--gray2)',borderRadius:12,overflow:'hidden',margin:'14px 0 22px',boxShadow:'0 4px 20px rgba(0,0,0,.08)' }}>
+      <div style={{ padding:'7px 14px',background:'#dde3ea',display:'flex',alignItems:'center',gap:5 }}>
+        <span style={{ width:9,height:9,borderRadius:'50%',background:'#ef4444',display:'inline-block' }}/>
+        <span style={{ width:9,height:9,borderRadius:'50%',background:'#f59e0b',display:'inline-block' }}/>
+        <span style={{ width:9,height:9,borderRadius:'50%',background:'#22c55e',display:'inline-block' }}/>
+        {title && <span style={{ fontSize:11,color:'#4a5568',marginLeft:10,fontWeight:600 }}>{title}</span>}
+      </div>
+      <div>{children}</div>
+    </div>
+  );
+}
+
+/* HelpCard */
+function HelpCard({ title, children, accent }) {
+  return (
+    <div style={{ background:'var(--white)',borderRadius:'var(--radius)',boxShadow:'var(--shadow)',overflow:'hidden',marginBottom:20 }}>
+      {title && (
+        <div style={{ padding:'14px 20px',borderBottom:'1px solid var(--gray2)',display:'flex',alignItems:'center',gap:8 }}>
+          {accent && <span style={{ width:4,height:18,background:accent,borderRadius:2,flexShrink:0 }}/>}
+          <span style={{ fontSize:15,fontWeight:700,color:'var(--navy)' }}>{title}</span>
+        </div>
+      )}
+      <div style={{ padding:'20px 24px' }}>{children}</div>
+    </div>
+  );
+}
+
+/* HelpStep */
+function HelpStep({ number, title, desc, note, children }) {
+  return (
+    <div style={{ display:'flex',gap:14,marginBottom:20 }}>
+      <div style={{ width:32,height:32,borderRadius:'50%',background:'var(--blue)',color:'white',fontSize:14,fontWeight:700,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,marginTop:2 }}>{number}</div>
+      <div style={{ flex:1 }}>
+        <div style={{ fontSize:14,fontWeight:700,color:'var(--navy)',marginBottom:4 }}>{title}</div>
+        {desc && <div style={{ fontSize:13,color:'var(--gray4)',lineHeight:1.7,marginBottom:8 }}>{desc}</div>}
+        {note && <div style={{ padding:'8px 12px',background:'var(--sky)',borderRadius:6,fontSize:12,color:'#1e40af',lineHeight:1.5,marginBottom:8 }}>💡 {note}</div>}
+        {children}
+      </div>
+    </div>
+  );
+}
+
+/* ── 목업: 전체 화면 구성 ── */
+function MockOverview() {
+  return (
+    <MockupFrame title="로그인 후 기본 화면 구성">
+      <div style={{ display:'flex',height:260 }}>
+        <div style={{ width:130,background:'var(--navy)',padding:'12px 8px',flexShrink:0 }}>
+          <div style={{ display:'flex',alignItems:'center',gap:6,padding:'4px 8px 10px',borderBottom:'1px solid rgba(255,255,255,.1)',marginBottom:8 }}>
+            <div style={{ width:22,height:22,background:'var(--blue)',borderRadius:5,flexShrink:0 }}/>
+            <div><div style={{ fontSize:9,color:'white',fontWeight:700 }}>할인점팀</div><div style={{ fontSize:8,color:'rgba(255,255,255,.4)' }}>매입·매출 관리</div></div>
+          </div>
+          <div style={{ fontSize:8,color:'rgba(255,255,255,.3)',letterSpacing:.8,padding:'0 6px',marginBottom:4 }}>메인</div>
+          <div style={{ padding:'5px 8px',borderRadius:5,background:'rgba(255,255,255,.07)',color:'rgba(255,255,255,.7)',fontSize:9,marginBottom:8 }}>🏠 홈</div>
+          <div style={{ fontSize:8,color:'rgba(255,255,255,.3)',letterSpacing:.8,padding:'0 6px',marginBottom:4 }}>데이터 업로드</div>
+          {['매입','매출','업로드 이력','상품DB 업로드'].map(m => <div key={m} style={{ padding:'4px 8px',color:'rgba(255,255,255,.45)',fontSize:9,marginBottom:1 }}>{m}</div>)}
+          <div style={{ fontSize:8,color:'rgba(255,255,255,.3)',letterSpacing:.8,padding:'0 6px',margin:'6px 0 4px' }}>데이터 조회</div>
+          {['매입 조회','매출 조회'].map(m => <div key={m} style={{ padding:'4px 8px',color:'rgba(255,255,255,.45)',fontSize:9,marginBottom:1 }}>{m}</div>)}
+          <div style={{ fontSize:8,color:'rgba(255,255,255,.3)',letterSpacing:.8,padding:'0 6px',margin:'6px 0 4px' }}>도움말</div>
+          <div style={{ padding:'4px 8px',color:'rgba(255,255,255,.45)',fontSize:9 }}>사용방법</div>
+        </div>
+        <div style={{ flex:1,padding:14,background:'var(--gray1)',overflow:'hidden' }}>
+          <div style={{ marginBottom:12 }}>
+            <div style={{ fontSize:13,fontWeight:700,color:'var(--navy)' }}>대시보드</div>
+            <div style={{ fontSize:10,color:'var(--gray3)' }}>당월 판매처별 매입·매출 현황</div>
+          </div>
+          <div style={{ display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:8 }}>
+            {['매입 – 공급수량','매입 – 공급가'].map(card => (
+              <div key={card} style={{ background:'white',borderRadius:8,padding:10,boxShadow:'0 1px 4px rgba(0,0,0,.06)' }}>
+                <div style={{ display:'flex',gap:4,alignItems:'center',marginBottom:6 }}>
+                  <span style={{ background:'#eff6ff',color:'var(--blue)',padding:'1px 6px',borderRadius:8,fontSize:8,fontWeight:700 }}>매입</span>
+                  <span style={{ fontSize:9,color:'var(--navy)',fontWeight:600 }}>판매처별 현황</span>
+                </div>
+                {[['홈플러스','#0068b7',75],['롯데마트','#ed1c24',52],['이마트','#e6b800',38],['메가마트','#ff6600',24]].map(([v,c,w]) => (
+                  <div key={v} style={{ marginBottom:3 }}>
+                    <div style={{ display:'flex',justifyContent:'space-between',fontSize:8,marginBottom:1 }}>
+                      <span style={{ display:'flex',alignItems:'center',gap:3 }}><span style={{ width:5,height:5,borderRadius:'50%',background:c,display:'inline-block' }}/>{v}</span>
+                      <span style={{ color:'var(--gray4)' }}>{w}%</span>
+                    </div>
+                    <div style={{ height:3,background:'var(--gray2)',borderRadius:2 }}><div style={{ height:'100%',width:`${w}%`,background:c,borderRadius:2 }}/></div>
+                  </div>
+                ))}
+              </div>
+            ))}
+          </div>
+          <div style={{ background:'white',borderRadius:8,padding:10,boxShadow:'0 1px 4px rgba(0,0,0,.06)',fontSize:10,color:'var(--gray3)',textAlign:'center' }}>📋 공지사항</div>
+        </div>
+      </div>
+      <div style={{ display:'flex',borderTop:'1px solid var(--gray2)' }}>
+        <div style={{ width:130,flexShrink:0,padding:'8px 12px',background:'#e8f0fe',fontSize:10,color:'var(--blue)',fontWeight:700,textAlign:'center' }}>① 사이드바 — 메뉴 이동</div>
+        <div style={{ flex:1,padding:'8px 12px',background:'#f0fdf4',fontSize:10,color:'#15803d',fontWeight:700,textAlign:'center' }}>② 메인 화면 — 현황 및 기능</div>
+      </div>
+    </MockupFrame>
+  );
+}
+
+/* ── 목업: 매출 업로드 - 판매처 선택 ── */
+function MockSalesVendor() {
+  return (
+    <MockupFrame title="매출 업로드 — ① 판매처 파일 선택 화면">
+      <div style={{ padding:16 }}>
+        <div style={{ display:'flex',alignItems:'center',gap:0,marginBottom:16 }}>
+          {['판매처 선택','파일 업로드','확인 및 저장'].map((s,i) => (
+            <div key={s} style={{ display:'flex',alignItems:'center' }}>
+              <div style={{ display:'flex',alignItems:'center',gap:5,fontSize:10 }}>
+                <div style={{ width:20,height:20,borderRadius:'50%',background:i===0?'var(--navy)':'var(--gray2)',color:i===0?'white':'var(--gray3)',fontSize:9,fontWeight:700,display:'flex',alignItems:'center',justifyContent:'center' }}>{i+1}</div>
+                <span style={{ color:i===0?'var(--navy)':'var(--gray3)',fontWeight:i===0?700:400 }}>{s}</span>
+              </div>
+              {i<2 && <div style={{ width:32,height:1,background:'var(--gray2)',margin:'0 8px' }}/>}
+            </div>
+          ))}
+        </div>
+        <div style={{ fontSize:11,fontWeight:700,color:'var(--navy)',marginBottom:10 }}>판매처 파일 업로드 — 파일을 끌어다 놓으면 자동 인식</div>
+        <div style={{ display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:8 }}>
+          {[['홈플러스','#0068b7'],['익스프레스','#00a550'],['롯데마트','#ed1c24'],['롯데슈퍼','#c8102e'],['메가마트','#ff6600'],['이마트','#e6b800'],['에브리데이','#8b5cf6'],['농협','#009a44']].map(([name,color]) => (
+            <div key={name} style={{ padding:'10px 6px',border:`2px solid ${color}`,borderRadius:8,background:`${color}12`,textAlign:'center',fontSize:10,fontWeight:600,color,position:'relative' }}>
+              <div style={{ position:'absolute',top:0,left:0,right:0,height:2,background:color,borderRadius:'6px 6px 0 0' }}/>
+              {name}
+            </div>
+          ))}
+        </div>
+        <div style={{ marginTop:12,padding:'9px 12px',background:'var(--sky)',borderRadius:8,fontSize:10,color:'#1e40af',display:'flex',alignItems:'center',gap:6 }}>
+          💡 파일을 드래그&드롭하면 판매처가 자동으로 인식됩니다
+        </div>
+      </div>
+    </MockupFrame>
+  );
+}
+
+/* ── 목업: 파일 드롭존 ── */
+function MockDropzone({ uploaded }) {
+  return (
+    <MockupFrame title={uploaded ? "매출 업로드 — ② 파일 인식 완료" : "매출 업로드 — ② 파일 업로드 영역"}>
+      <div style={{ padding:16 }}>
+        {!uploaded ? (
+          <div style={{ border:'2.5px dashed #93c5fd',borderRadius:12,padding:'32px 20px',textAlign:'center',background:'var(--sky)' }}>
+            <div style={{ fontSize:32,marginBottom:10 }}>📂</div>
+            <div style={{ fontSize:13,fontWeight:700,color:'var(--navy)',marginBottom:4 }}>여기에 엑셀 파일을 끌어다 놓거나 클릭하세요</div>
+            <div style={{ fontSize:11,color:'var(--gray3)' }}>XLS, XLSX 파일 지원 · 판매처 자동 인식</div>
+          </div>
+        ) : (
+          <div style={{ border:'2px solid var(--green)',borderRadius:12,padding:'20px',background:'#f0fdf4',display:'flex',alignItems:'center',gap:14 }}>
+            <div style={{ fontSize:28 }}>✅</div>
+            <div>
+              <div style={{ fontSize:13,fontWeight:700,color:'#15803d',marginBottom:2 }}>홈플러스_매출_2025-03-15.xlsx</div>
+              <div style={{ fontSize:11,color:'#166534' }}>판매처: 홈플러스 · 날짜: 2025-03-15 · 상품 24건 인식됨</div>
+            </div>
+          </div>
+        )}
+      </div>
+    </MockupFrame>
+  );
+}
+
+/* ── 목업: 미리보기 및 저장 ── */
+function MockPreviewSave() {
+  return (
+    <MockupFrame title="매출 업로드 — ③ 미리보기 확인 및 저장">
+      <div style={{ padding:16 }}>
+        <div style={{ background:'var(--sky)',borderRadius:8,padding:'10px 14px',display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:8,marginBottom:12 }}>
+          {[{label:'판매처',value:'홈플러스'},{label:'날짜',value:'2025-03-15'},{label:'상품 수',value:'24건'}].map(item => (
+            <div key={item.label}>
+              <div style={{ fontSize:9,color:'var(--blue)',fontWeight:700,textTransform:'uppercase',letterSpacing:.5 }}>{item.label}</div>
+              <div style={{ fontSize:13,fontWeight:700,color:'var(--navy)',marginTop:2 }}>{item.value}</div>
+            </div>
+          ))}
+        </div>
+        <div style={{ background:'white',borderRadius:8,overflow:'hidden',border:'1px solid var(--gray2)',marginBottom:12 }}>
+          <div style={{ display:'grid',gridTemplateColumns:'1.5fr 2fr 1fr 1fr',background:'var(--gray1)',padding:'6px 10px',gap:8,borderBottom:'1px solid var(--gray2)' }}>
+            {['상품코드','상품명','수량','금액'].map(h => <div key={h} style={{ fontSize:9,fontWeight:700,color:'var(--gray4)',textTransform:'uppercase' }}>{h}</div>)}
+          </div>
+          {[['8801234567890','제품명 A',120,'₩240,000'],['8801234567891','제품명 B',85,'₩170,000'],['8801234567892','제품명 C',210,'₩420,000']].map(([code,name,qty,amt]) => (
+            <div key={code} style={{ display:'grid',gridTemplateColumns:'1.5fr 2fr 1fr 1fr',padding:'6px 10px',gap:8,borderTop:'1px solid var(--gray2)',alignItems:'center' }}>
+              <div style={{ fontSize:8,color:'var(--gray4)',fontFamily:'monospace' }}>{code}</div>
+              <div style={{ fontSize:10,color:'var(--navy)' }}>{name}</div>
+              <div style={{ fontSize:10,fontWeight:600,color:'var(--navy)' }}>{qty}</div>
+              <div style={{ fontSize:10,color:'var(--gray4)' }}>{amt}</div>
+            </div>
+          ))}
+        </div>
+        <div style={{ display:'flex',justifyContent:'flex-end',gap:8 }}>
+          <div style={{ padding:'7px 14px',background:'var(--sky)',color:'var(--blue)',borderRadius:8,fontSize:11,fontWeight:700,cursor:'pointer',border:'1px solid #dbeafe' }}>자사 양식 다운로드</div>
+          <div style={{ padding:'7px 24px',background:'var(--blue)',color:'white',borderRadius:8,fontSize:12,fontWeight:700,cursor:'pointer',boxShadow:'0 2px 8px rgba(37,99,235,.3)' }}>저장</div>
+        </div>
+      </div>
+    </MockupFrame>
+  );
+}
+
+/* ── 목업: 매입 업로드 ── */
+function MockPurchaseVendor() {
+  return (
+    <MockupFrame title="매입 업로드 — 판매처 선택 및 날짜 입력">
+      <div style={{ padding:16 }}>
+        <div style={{ fontSize:11,fontWeight:700,color:'var(--navy)',marginBottom:8 }}>① 판매처 선택</div>
+        <div style={{ display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:8,marginBottom:16 }}>
+          {[['홈플러스','#0068b7',true],['익스프레스','#00a550',false],['롯데마트','#ed1c24',false],['롯데슈퍼','#c8102e',false],['메가마트','#ff6600',false],['이마트','#e6b800',false],['에브리데이','#8b5cf6',false],['농협','#009a44',false]].map(([name,color,sel]) => (
+            <div key={name} style={{ padding:'8px 4px',border:`2px solid ${sel?color:'var(--gray2)'}`,borderRadius:8,background:sel?`${color}15`:'white',textAlign:'center',fontSize:9,fontWeight:600,color:sel?color:'var(--gray4)',position:'relative' }}>
+              {sel && <div style={{ position:'absolute',top:0,left:0,right:0,height:2,background:color,borderRadius:'6px 6px 0 0' }}/>}
+              {name}
+            </div>
+          ))}
+        </div>
+        <div style={{ fontSize:11,fontWeight:700,color:'var(--navy)',marginBottom:8 }}>② 매입 날짜 선택</div>
+        <div style={{ display:'inline-flex',alignItems:'center',gap:8,padding:'8px 14px',border:'1.5px solid var(--blue)',borderRadius:8,background:'var(--sky)',fontSize:11,color:'var(--navy)',fontWeight:500 }}>
+          📅 2025-03-15
+        </div>
+        <div style={{ marginTop:12,fontSize:11,fontWeight:700,color:'var(--navy)',marginBottom:8 }}>③ 파일 업로드</div>
+        <div style={{ border:'2px dashed #93c5fd',borderRadius:10,padding:'16px',textAlign:'center',background:'var(--sky)',fontSize:11,color:'var(--gray3)' }}>
+          매입 엑셀 파일을 여기에 끌어다 놓거나 클릭
+        </div>
+      </div>
+    </MockupFrame>
+  );
+}
+
+/* ── 목업: 조회 화면 ── */
+function MockQueryPage({ type }) {
+  const isP = type === 'purchase';
+  const qtyLabel = isP ? '공급수량' : '판매수량';
+  const amtLabel = isP ? '공급금액' : '매출금액';
+  return (
+    <MockupFrame title={`${isP ? '매입' : '매출'} 조회 — 필터 및 결과 화면`}>
+      <div style={{ padding:16 }}>
+        <div style={{ display:'flex',gap:8,alignItems:'center',marginBottom:12,flexWrap:'wrap' }}>
+          {['판매처 전체','2025-03-01','2025-03-31','브랜드 전체'].map(val => (
+            <div key={val} style={{ padding:'6px 10px',border:'1.5px solid var(--gray2)',borderRadius:8,background:'white',fontSize:10,color:'var(--text)',display:'flex',alignItems:'center',gap:4 }}>
+              {val} <span style={{ color:'var(--gray3)' }}>▾</span>
+            </div>
+          ))}
+          <div style={{ padding:'6px 16px',background:'var(--blue)',color:'white',borderRadius:8,fontSize:10,fontWeight:700 }}>조회</div>
+        </div>
+        <div style={{ background:'white',borderRadius:8,overflow:'hidden',border:'1px solid var(--gray2)' }}>
+          <div style={{ display:'flex',justifyContent:'space-between',padding:'8px 12px',borderBottom:'1px solid var(--gray2)',background:'var(--gray1)' }}>
+            <span style={{ fontSize:10,fontWeight:700,color:'var(--navy)' }}>조회 결과 · 42건</span>
+            <div style={{ display:'flex',gap:6 }}>
+              <div style={{ padding:'4px 10px',background:'var(--sky)',color:'var(--blue)',borderRadius:6,fontSize:9,fontWeight:700,cursor:'pointer' }}>선택 다운로드</div>
+              <div style={{ padding:'4px 10px',background:'var(--sky)',color:'var(--blue)',borderRadius:6,fontSize:9,fontWeight:700,cursor:'pointer' }}>전체 다운로드</div>
+            </div>
+          </div>
+          <div style={{ display:'grid',gridTemplateColumns:'20px 72px 70px 60px 1fr 56px 70px',background:'var(--gray1)',padding:'5px 12px',gap:6,borderBottom:'1px solid var(--gray2)' }}>
+            {['','날짜','판매처','브랜드','상품명',qtyLabel,amtLabel].map(h => (
+              <div key={h} style={{ fontSize:8,fontWeight:700,color:'var(--gray4)',textTransform:'uppercase',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis' }}>{h}</div>
+            ))}
+          </div>
+          {[['2025-03-15','홈플러스','#0068b7','브랜드A','제품명 A',120,'₩240,000'],['2025-03-15','롯데마트','#ed1c24','브랜드B','제품명 B',85,'₩170,000'],['2025-03-14','이마트','#e6b800','브랜드A','제품명 C',210,'₩420,000']].map(([date,vendor,vc,brand,prod,qty,amt]) => (
+            <div key={date+vendor} style={{ display:'grid',gridTemplateColumns:'20px 72px 70px 60px 1fr 56px 70px',padding:'6px 12px',gap:6,borderBottom:'1px solid var(--gray2)',alignItems:'center' }}>
+              <input type="checkbox" style={{ width:10,height:10 }} readOnly/>
+              <div style={{ fontSize:9,color:'var(--gray4)' }}>{date}</div>
+              <div style={{ fontSize:9,display:'flex',alignItems:'center',gap:3 }}><span style={{ width:6,height:6,borderRadius:'50%',background:vc,display:'inline-block',flexShrink:0 }}/>{vendor}</div>
+              <div style={{ fontSize:9,color:'var(--gray4)' }}>{brand}</div>
+              <div style={{ fontSize:9,color:'var(--navy)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap' }}>{prod}</div>
+              <div style={{ fontSize:9,fontWeight:700,color:'var(--navy)',textAlign:'right' }}>{qty}</div>
+              <div style={{ fontSize:9,color:'var(--gray4)',textAlign:'right' }}>{amt}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </MockupFrame>
+  );
+}
+
+/* ── 목업: 상품DB ── */
+function MockProductsUpload() {
+  return (
+    <MockupFrame title="상품DB 업로드 화면">
+      <div style={{ padding:16 }}>
+        <div style={{ border:'2px dashed var(--gray2)',borderRadius:10,padding:'24px 20px',textAlign:'center',background:'var(--gray1)',marginBottom:14 }}>
+          <div style={{ fontSize:28,marginBottom:8 }}>📦</div>
+          <div style={{ fontSize:13,fontWeight:700,color:'var(--navy)',marginBottom:4 }}>상품DB 엑셀 파일 업로드</div>
+          <div style={{ fontSize:10,color:'var(--gray3)',marginBottom:12 }}>상품코드 · 브랜드 · 상품명 · 정가 컬럼 포함</div>
+          <div style={{ display:'inline-flex',padding:'7px 18px',background:'var(--blue)',color:'white',borderRadius:8,fontSize:11,fontWeight:700 }}>파일 선택</div>
+        </div>
+        <div style={{ background:'white',borderRadius:8,border:'1px solid var(--gray2)',overflow:'hidden' }}>
+          <div style={{ display:'grid',gridTemplateColumns:'1.5fr 1fr 2fr 1fr',background:'var(--gray1)',padding:'5px 10px',gap:8,borderBottom:'1px solid var(--gray2)' }}>
+            {['상품코드','브랜드','상품명','정가'].map(h => <div key={h} style={{ fontSize:9,fontWeight:700,color:'var(--gray4)' }}>{h}</div>)}
+          </div>
+          {[['8801234567890','브랜드A','상품명 A','₩2,000'],['8801234567891','브랜드A','상품명 B','₩1,500'],['8801234567892','브랜드B','상품명 C','₩3,000']].map(([code,brand,name,price]) => (
+            <div key={code} style={{ display:'grid',gridTemplateColumns:'1.5fr 1fr 2fr 1fr',padding:'5px 10px',gap:8,borderBottom:'1px solid var(--gray2)' }}>
+              <div style={{ fontSize:8,color:'var(--gray4)',fontFamily:'monospace' }}>{code}</div>
+              <div style={{ fontSize:9,color:'var(--navy)' }}>{brand}</div>
+              <div style={{ fontSize:9,color:'var(--navy)' }}>{name}</div>
+              <div style={{ fontSize:9,fontWeight:600,color:'var(--navy)' }}>{price}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </MockupFrame>
+  );
+}
+
+/* ── 목업: 로그인/회원가입 ── */
+function MockAuthScreen({ tab }) {
+  return (
+    <MockupFrame title={tab === 'login' ? '로그인 화면' : '회원가입 화면'}>
+      <div style={{ padding:16,display:'flex',justifyContent:'center',background:'linear-gradient(135deg,#0d1b2a 0%,#1b2d42 100%)' }}>
+        <div style={{ background:'white',borderRadius:12,padding:20,width:260,boxShadow:'0 8px 32px rgba(0,0,0,.3)' }}>
+          <div style={{ textAlign:'center',marginBottom:14 }}>
+            <div style={{ width:36,height:36,background:'var(--navy)',borderRadius:9,display:'flex',alignItems:'center',justifyContent:'center',margin:'0 auto 8px' }}>
+              <div style={{ width:14,height:14,background:'white',borderRadius:2 }}/>
+            </div>
+            <div style={{ fontSize:12,fontWeight:700,color:'var(--navy)' }}>할인점팀 매입·매출 관리</div>
+            <div style={{ fontSize:9,color:'var(--gray3)',marginTop:2 }}>Distribution Management System</div>
+          </div>
+          <div style={{ display:'flex',background:'var(--gray1)',borderRadius:6,padding:2,marginBottom:12 }}>
+            {['로그인','회원가입'].map(t => {
+              const isActive = tab==='login' ? t==='로그인' : t==='회원가입';
+              return (
+                <div key={t} style={{ flex:1,padding:'5px',textAlign:'center',borderRadius:5,background:isActive?'white':'transparent',color:isActive?'var(--navy)':'var(--gray4)',fontSize:10,fontWeight:isActive?700:500,boxShadow:isActive?'0 1px 3px rgba(0,0,0,.1)':'none' }}>
+                  {t}
+                </div>
+              );
+            })}
+          </div>
+          {tab === 'login' ? (
+            <>
+              {[{label:'이메일',ph:'email@company.com'},{label:'비밀번호',ph:'비밀번호'}].map(f => (
+                <div key={f.label} style={{ marginBottom:8 }}>
+                  <div style={{ fontSize:9,fontWeight:600,color:'var(--gray4)',marginBottom:3 }}>{f.label}</div>
+                  <div style={{ padding:'7px 10px',border:'1.5px solid var(--gray2)',borderRadius:6,fontSize:10,color:'var(--gray3)',background:'var(--gray1)' }}>{f.ph}</div>
+                </div>
+              ))}
+              <div style={{ padding:'9px',background:'var(--blue)',color:'white',borderRadius:7,textAlign:'center',fontSize:12,fontWeight:700,marginTop:4 }}>로그인</div>
+            </>
+          ) : (
+            <>
+              {[{label:'이름 *',ph:'홍길동'},{label:'부서',ph:'유통3팀'},{label:'이메일 *',ph:'email@company.com'},{label:'비밀번호 *',ph:'6자 이상'}].map(f => (
+                <div key={f.label} style={{ marginBottom:6 }}>
+                  <div style={{ fontSize:9,fontWeight:600,color:'var(--gray4)',marginBottom:2 }}>{f.label}</div>
+                  <div style={{ padding:'5px 8px',border:'1.5px solid var(--gray2)',borderRadius:5,fontSize:9,color:'var(--gray3)',background:'var(--gray1)' }}>{f.ph}</div>
+                </div>
+              ))}
+              <div style={{ padding:'8px',background:'var(--blue)',color:'white',borderRadius:7,textAlign:'center',fontSize:11,fontWeight:700,marginTop:4 }}>가입 신청</div>
+            </>
+          )}
+        </div>
+      </div>
+    </MockupFrame>
+  );
+}
+
+function MockPendingScreen() {
+  return (
+    <MockupFrame title="가입 신청 후 — 승인 대기 화면">
+      <div style={{ padding:16,display:'flex',justifyContent:'center',background:'var(--gray1)' }}>
+        <div style={{ background:'white',borderRadius:12,padding:'28px 24px',width:280,textAlign:'center',boxShadow:'var(--shadow)' }}>
+          <div style={{ width:56,height:56,background:'#fef3c7',borderRadius:'50%',display:'flex',alignItems:'center',justifyContent:'center',margin:'0 auto 14px',fontSize:26 }}>⏳</div>
+          <div style={{ fontSize:14,fontWeight:700,color:'var(--navy)',marginBottom:8 }}>승인 대기 중</div>
+          <div style={{ fontSize:12,color:'var(--gray3)',lineHeight:1.7,marginBottom:16 }}>
+            <strong style={{ color:'var(--navy)' }}>홍길동</strong>님의 가입 신청이 접수되었습니다.<br/>
+            관리자 승인 후 로그인하실 수 있습니다.
+          </div>
+          <div style={{ display:'inline-block',padding:'6px 16px',border:'1.5px solid var(--gray2)',borderRadius:7,fontSize:11,color:'var(--gray4)',cursor:'pointer' }}>로그아웃</div>
+        </div>
+      </div>
+    </MockupFrame>
+  );
+}
+
+/* ── 목업: 관리자 사용자 관리 ── */
+function MockAdminPage() {
+  return (
+    <MockupFrame title="관리자 — 사용자 관리 화면">
+      <div style={{ padding:16 }}>
+        <div style={{ display:'flex',gap:4,marginBottom:14 }}>
+          {[{label:'대기 중',count:3,active:true},{label:'승인됨',count:null,active:false}].map(tab => (
+            <div key={tab.label} style={{ padding:'7px 16px',borderRadius:7,background:tab.active?'var(--navy)':'white',color:tab.active?'white':'var(--gray4)',fontSize:11,fontWeight:600,display:'flex',alignItems:'center',gap:6,boxShadow:'var(--shadow)',cursor:'pointer' }}>
+              {tab.label}
+              {tab.count && <span style={{ background:'var(--red)',color:'white',fontSize:9,fontWeight:700,padding:'1px 6px',borderRadius:8 }}>{tab.count}</span>}
+            </div>
+          ))}
+        </div>
+        <div style={{ background:'white',borderRadius:8,overflow:'hidden',border:'1px solid var(--gray2)' }}>
+          <div style={{ display:'grid',gridTemplateColumns:'1fr 1fr 60px 70px 56px 1fr',background:'var(--gray1)',padding:'6px 12px',gap:8,borderBottom:'1px solid var(--gray2)' }}>
+            {['이름','이메일','부서','신청일','상태','작업'].map(h => <div key={h} style={{ fontSize:9,fontWeight:700,color:'var(--gray4)' }}>{h}</div>)}
+          </div>
+          {[{name:'홍길동',email:'hong@co.kr',dept:'유통3팀',date:'03-15'},{name:'김영희',email:'kim@co.kr',dept:'유통1팀',date:'03-14'},{name:'이철수',email:'lee@co.kr',dept:'기획팀',date:'03-13'}].map(u => (
+            <div key={u.name} style={{ display:'grid',gridTemplateColumns:'1fr 1fr 60px 70px 56px 1fr',padding:'8px 12px',gap:8,borderBottom:'1px solid var(--gray2)',alignItems:'center' }}>
+              <div style={{ display:'flex',alignItems:'center',gap:6 }}>
+                <div style={{ width:20,height:20,borderRadius:'50%',background:'#3b82f6',color:'white',fontSize:9,fontWeight:700,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0 }}>{u.name[0]}</div>
+                <span style={{ fontSize:10,fontWeight:600,color:'var(--navy)' }}>{u.name}</span>
+              </div>
+              <div style={{ fontSize:9,color:'var(--gray4)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap' }}>{u.email}</div>
+              <div style={{ fontSize:9,color:'var(--gray4)' }}>{u.dept}</div>
+              <div style={{ fontSize:9,color:'var(--gray3)' }}>{u.date}</div>
+              <span style={{ background:'#fef3c7',color:'#92400e',padding:'2px 7px',borderRadius:8,fontSize:8,fontWeight:700 }}>대기중</span>
+              <div style={{ display:'flex',gap:4 }}>
+                <span style={{ padding:'3px 8px',background:'#dcfce7',color:'#15803d',borderRadius:5,fontSize:9,fontWeight:700,cursor:'pointer' }}>✓ 승인</span>
+                <span style={{ padding:'3px 8px',background:'#fee2e2',color:'var(--red)',borderRadius:5,fontSize:9,fontWeight:700,cursor:'pointer' }}>✕ 삭제</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </MockupFrame>
+  );
+}
+
+/* ─── HELP PAGE 메인 컴포넌트 ─── */
+function HelpPage() {
+  const [activeSection, setActiveSection] = useState('overview');
+  const sections = [
+    { id:'overview', label:'시스템 개요',   icon:'🏠' },
+    { id:'upload',   label:'데이터 업로드', icon:'📤' },
+    { id:'query',    label:'데이터 조회',   icon:'🔍' },
+    { id:'products', label:'상품DB 업로드', icon:'📦' },
+    { id:'account',  label:'계정 관리',     icon:'👤' },
+    { id:'admin',    label:'관리자 기능',   icon:'⚙️' },
+  ];
+  return (
+    <div>
+      <div className="page-header">
+        <div className="page-title">사용방법</div>
+        <div className="page-sub">할인점팀 매입·매출 관리시스템 이용 가이드</div>
+      </div>
+      <div style={{ display:'flex',gap:24 }}>
+        <div style={{ width:200,flexShrink:0 }}>
+          <div style={{ background:'var(--white)',borderRadius:'var(--radius)',boxShadow:'var(--shadow)',overflow:'hidden',position:'sticky',top:24 }}>
+            <div style={{ padding:'14px 16px',background:'var(--navy)',color:'white',fontSize:12,fontWeight:700,letterSpacing:'.5px' }}>목차</div>
+            {sections.map(s => (
+              <button key={s.id} onClick={() => setActiveSection(s.id)} style={{ display:'flex',alignItems:'center',gap:8,width:'100%',padding:'12px 16px',border:'none',borderLeft:activeSection===s.id?'3px solid var(--blue)':'3px solid transparent',background:activeSection===s.id?'var(--sky)':'transparent',color:activeSection===s.id?'var(--blue)':'var(--gray4)',fontFamily:'inherit',fontSize:13,fontWeight:activeSection===s.id?700:500,textAlign:'left',cursor:'pointer',transition:'all .15s' }}>
+                <span style={{ fontSize:14 }}>{s.icon}</span>{s.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div style={{ flex:1,minWidth:0 }}>
+          {activeSection==='overview'  && <HelpSectionOverview />}
+          {activeSection==='upload'    && <HelpSectionUpload />}
+          {activeSection==='query'     && <HelpSectionQuery />}
+          {activeSection==='products'  && <HelpSectionProducts />}
+          {activeSection==='account'   && <HelpSectionAccount />}
+          {activeSection==='admin'     && <HelpSectionAdmin />}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── 시스템 개요 ── */
+function HelpSectionOverview() {
+  return (
+    <div>
+      <HelpCard title="시스템 소개" accent="var(--blue)">
+        <p style={{ fontSize:14,color:'var(--gray4)',lineHeight:1.8,marginBottom:16 }}>
+          <strong style={{ color:'var(--navy)' }}>할인점팀 매입·매출 관리시스템</strong>은 홈플러스, 롯데마트, 이마트 등
+          주요 할인점으로부터 받은 매입·매출 엑셀 파일을 자동으로 파싱하여 저장하고,
+          판매처별 현황을 조회할 수 있는 전사 데이터 관리 도구입니다.
+        </p>
+        <div style={{ display:'flex',gap:12,flexWrap:'wrap' }}>
+          {[{label:'지원 판매처',value:'8곳',color:'#2563eb'},{label:'주요 기능',value:'업로드·조회·이력',color:'#22c55e'},{label:'파일 형식',value:'XLS / XLSX',color:'#f59e0b'}].map(item => (
+            <div key={item.label} style={{ flex:1,minWidth:110,padding:'14px 16px',background:'var(--gray1)',borderRadius:8,textAlign:'center' }}>
+              <div style={{ fontSize:18,fontWeight:700,color:item.color }}>{item.value}</div>
+              <div style={{ fontSize:12,color:'var(--gray4)',marginTop:4 }}>{item.label}</div>
+            </div>
+          ))}
+        </div>
+      </HelpCard>
+      <MockOverview />
+      <HelpCard title="지원 판매처" accent="var(--blue)">
+        <div style={{ display:'flex',flexWrap:'wrap',gap:8 }}>
+          {[['홈플러스','#0068b7'],['익스프레스','#00a550'],['롯데마트','#ed1c24'],['롯데슈퍼','#c8102e'],['메가마트','#ff6600'],['이마트','#e6b800'],['에브리데이','#8b5cf6'],['농협','#009a44']].map(([name,color]) => (
+            <span key={name} style={{ display:'inline-flex',alignItems:'center',gap:5,padding:'4px 12px',border:`1.5px solid ${color}`,borderRadius:20,fontSize:13,fontWeight:600,color,background:color+'18' }}>
+              <span style={{ width:7,height:7,borderRadius:'50%',background:color,flexShrink:0 }}/>{name}
+            </span>
+          ))}
+        </div>
+        <p style={{ fontSize:12,color:'var(--gray3)',marginTop:12 }}>* 각 판매처의 표준 엑셀 양식을 자동으로 인식하여 파싱합니다.</p>
+      </HelpCard>
+    </div>
+  );
+}
+
+/* ── 데이터 업로드 ── */
+function HelpSectionUpload() {
+  const [tab, setTab] = useState('sales');
+  return (
+    <div>
+      <div style={{ display:'flex',gap:4,marginBottom:16 }}>
+        {[{id:'sales',label:'📊 매출 업로드'},{id:'purchase',label:'🚚 매입 업로드'},{id:'history',label:'📋 업로드 이력'}].map(t => (
+          <button key={t.id} onClick={() => setTab(t.id)} style={{ padding:'8px 16px',borderRadius:8,border:'none',fontFamily:'inherit',fontSize:13,fontWeight:600,cursor:'pointer',background:tab===t.id?'var(--navy)':'var(--white)',color:tab===t.id?'white':'var(--gray4)',boxShadow:'var(--shadow)',transition:'all .15s' }}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'sales' && (
+        <>
+          <HelpCard title="매출 업로드 순서" accent="#22c55e">
+            <HelpStep number={1} title="사이드바 [데이터 업로드 > 매출] 클릭" desc="왼쪽 사이드바 메뉴에서 이동합니다." />
+            <HelpStep number={2} title="판매처 파일 드래그하거나 클릭해서 업로드" desc="판매처에서 받은 엑셀 파일을 올리면 판매처와 날짜를 자동으로 인식합니다." note="홈플러스·익스프레스는 하나의 파일에 두 판매처 데이터가 있어도 자동으로 분리됩니다." />
+          </HelpCard>
+          <MockSalesVendor />
+          <HelpCard accent="#22c55e">
+            <HelpStep number={3} title="파일 업로드 영역에 파일 드롭" desc="점선 영역에 파일을 끌어다 놓거나, 클릭해서 파일을 선택합니다." />
+          </HelpCard>
+          <MockDropzone uploaded={false} />
+          <MockDropzone uploaded={true} />
+          <HelpCard accent="#22c55e">
+            <HelpStep number={4} title="미리보기 데이터 확인 후 [저장] 클릭" desc="파싱된 상품코드·수량이 맞는지 확인 후 저장합니다. 필요 시 자사 양식으로 다운로드도 가능합니다." note="동일 날짜·판매처 데이터가 이미 있으면 덮어쓸지 확인 창이 나타납니다." />
+          </HelpCard>
+          <MockPreviewSave />
+        </>
+      )}
+
+      {tab === 'purchase' && (
+        <>
+          <HelpCard title="매입 업로드 순서" accent="#2563eb">
+            <HelpStep number={1} title="사이드바 [데이터 업로드 > 매입] 클릭" />
+            <HelpStep number={2} title="판매처 선택" desc="화면의 판매처 버튼 중 해당 판매처를 클릭합니다." />
+            <HelpStep number={3} title="매입 날짜 입력" desc="해당 매입 데이터의 기준 날짜를 선택합니다." />
+            <HelpStep number={4} title="엑셀 파일 업로드" desc="판매처에서 받은 매입 파일을 드래그하거나 클릭해서 선택합니다." note="EUC-KR 인코딩 파일도 자동 처리됩니다. 별도 변환 불필요." />
+            <HelpStep number={5} title="미리보기 확인 후 저장" desc="상품코드, 공급수량, 공급금액을 확인 후 [저장] 클릭." />
+          </HelpCard>
+          <MockPurchaseVendor />
+        </>
+      )}
+
+      {tab === 'history' && (
+        <>
+          <HelpCard title="업로드 이력 조회" accent="#f59e0b">
+            <HelpStep number={1} title="사이드바 [데이터 업로드 > 업로드 이력] 클릭" desc="지금까지 업로드된 모든 파일 이력을 확인합니다." />
+            <HelpStep number={2} title="필터 설정" desc="매입/매출 구분, 판매처, 기간으로 필터링합니다." />
+            <HelpStep number={3} title="데이터 다운로드" desc="체크박스로 항목 선택 후 [선택 다운로드] 또는 [전체 다운로드] 클릭." note="여러 건 선택 시 [선택 다운로드] 버튼이 활성화됩니다." />
+          </HelpCard>
+          <MockQueryPage type="purchase" />
+        </>
+      )}
+
+      <HelpCard title="주의사항" accent="#ef4444">
+        {['상품코드가 88로 시작하는 항목만 자동으로 인식됩니다.','판매처에서 양식을 변경한 경우 파싱이 실패할 수 있습니다.','동일 날짜·판매처 데이터를 다시 업로드하면 기존 데이터를 덮어씁니다.','파일 인코딩이 EUC-KR인 경우에도 자동 처리됩니다.'].map((txt,i) => (
+          <div key={i} style={{ display:'flex',gap:8,alignItems:'flex-start',fontSize:13,color:'var(--gray4)',marginBottom:8 }}>
+            <span style={{ color:'var(--red)',fontWeight:700,flexShrink:0 }}>⚠</span>{txt}
+          </div>
+        ))}
+      </HelpCard>
+    </div>
+  );
+}
+
+/* ── 데이터 조회 ── */
+function HelpSectionQuery() {
+  return (
+    <div>
+      <HelpCard title="매입 조회" accent="#2563eb">
+        <HelpStep number={1} title="[데이터 조회 > 매입] 메뉴 클릭" />
+        <HelpStep number={2} title="조회 조건 설정" desc="판매처, 기간(시작일~종료일), 브랜드 조건을 설정합니다." />
+        <HelpStep number={3} title="[조회] 클릭 → 결과 확인" desc="날짜·판매처·브랜드·상품명·공급수량·공급금액 목록이 표시됩니다." />
+        <HelpStep number={4} title="엑셀 다운로드" desc="체크박스로 원하는 행 선택 후 [선택 다운로드] 또는 [전체 다운로드]." note="다운로드 파일에는 날짜·판매처·상품 정보가 포함됩니다." />
+      </HelpCard>
+      <MockQueryPage type="purchase" />
+      <HelpCard title="매출 조회" accent="#22c55e">
+        <HelpStep number={1} title="[데이터 조회 > 매출] 메뉴 클릭" />
+        <HelpStep number={2} title="조회 조건 설정" desc="판매처, 기간, 브랜드 조건을 선택합니다." />
+        <HelpStep number={3} title="결과 확인 및 다운로드" desc="판매수량·매출금액 확인 후 필요 시 엑셀로 내보냅니다." />
+      </HelpCard>
+      <MockQueryPage type="sales" />
+    </div>
+  );
+}
+
+/* ── 상품DB 업로드 ── */
+function HelpSectionProducts() {
+  return (
+    <div>
+      <HelpCard title="상품DB 업로드란?" accent="#f59e0b">
+        <p style={{ fontSize:14,color:'var(--gray4)',lineHeight:1.7,marginBottom:12 }}>상품코드별 정가, 브랜드, 상품명 기준 정보를 엑셀로 일괄 등록합니다. 매출 금액 산정 시 여기에 등록된 정가가 사용됩니다.</p>
+        {[{label:'홈 대시보드',value:'판매처별 매출액 산정 (판매수량 × 정가)'},{label:'매출 조회',value:'매출금액 컬럼 계산 시 활용'},{label:'매출 업로드',value:'상품명·브랜드 자동 매칭'}].map(item => (
+          <div key={item.label} style={{ display:'flex',padding:'10px 0',borderBottom:'1px solid var(--gray2)',fontSize:13 }}>
+            <div style={{ width:130,flexShrink:0,color:'var(--gray4)',fontWeight:500 }}>{item.label}</div>
+            <div style={{ flex:1,color:'var(--text)' }}>{item.value}</div>
+          </div>
+        ))}
+      </HelpCard>
+      <HelpCard title="업로드 방법" accent="#f59e0b">
+        <HelpStep number={1} title="[데이터 업로드 > 상품DB 업로드] 메뉴 클릭" />
+        <HelpStep number={2} title="엑셀 파일 준비" desc="상품코드, 브랜드, 상품명, 정가 컬럼이 포함된 엑셀 파일을 준비합니다." note="상품코드는 88로 시작하는 바코드 형식이어야 합니다." />
+        <HelpStep number={3} title="파일 업로드 및 저장" desc="파일을 선택하고 미리보기를 확인한 후 저장합니다." />
+      </HelpCard>
+      <MockProductsUpload />
+    </div>
+  );
+}
+
+/* ── 계정 관리 ── */
+function HelpSectionAccount() {
+  const [mockTab, setMockTab] = useState('login');
+  return (
+    <div>
+      <HelpCard title="회원가입" accent="#22c55e">
+        <HelpStep number={1} title="로그인 화면에서 [회원가입] 탭 클릭" />
+        <HelpStep number={2} title="정보 입력 후 [가입 신청] 클릭" desc="이름(필수), 부서, 이메일(필수), 비밀번호(6자 이상)를 입력합니다." note="부서 예시: 유통3팀, 유통기획팀" />
+        <HelpStep number={3} title="관리자 승인 대기" desc="가입 신청 완료 후 관리자가 승인하기 전까지 '승인 대기 중' 화면이 표시됩니다." />
+        <HelpStep number={4} title="승인 완료 후 정상 로그인 가능" />
+      </HelpCard>
+      <div style={{ display:'flex',gap:8,marginBottom:8 }}>
+        {[{id:'login',label:'로그인 화면'},{id:'signup',label:'회원가입 화면'},{id:'pending',label:'승인 대기 화면'}].map(t => (
+          <button key={t.id} onClick={() => setMockTab(t.id)} style={{ padding:'6px 14px',borderRadius:6,border:'none',fontFamily:'inherit',fontSize:12,fontWeight:600,cursor:'pointer',background:mockTab===t.id?'var(--navy)':'var(--white)',color:mockTab===t.id?'white':'var(--gray4)',boxShadow:'var(--shadow)',transition:'all .15s' }}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+      {mockTab === 'pending' ? <MockPendingScreen /> : <MockAuthScreen tab={mockTab} />}
+    </div>
+  );
+}
+
+/* ── 관리자 기능 ── */
+function HelpSectionAdmin() {
+  return (
+    <div>
+      <div style={{ padding:'12px 16px',background:'#fef3c7',borderRadius:8,fontSize:13,color:'#92400e',marginBottom:20,display:'flex',gap:8,alignItems:'center' }}>
+        <span style={{ fontSize:16 }}>⚙️</span>
+        이 섹션은 <strong>관리자(admin) 계정</strong>에만 표시되는 기능입니다.
+      </div>
+      <HelpCard title="사용자 관리" accent="#ef4444">
+        <HelpStep number={1} title="사이드바 [관리자 > 사용자 관리] 클릭" />
+        <HelpStep number={2} title="[대기 중] 탭 — 신청자 확인 후 승인 또는 삭제" desc="이름·이메일·부서·신청일을 확인 후 [✓ 승인] 또는 [✕ 삭제] 클릭." note="삭제 시 해당 계정은 완전히 삭제됩니다." />
+        <HelpStep number={3} title="[승인됨] 탭 — 승인 취소" desc="승인된 사용자 목록에서 [승인 취소]로 접근 권한을 회수할 수 있습니다." />
+      </HelpCard>
+      <MockAdminPage />
+      <HelpCard title="공지사항 관리" accent="#ef4444">
+        <HelpStep number={1} title="홈 화면 공지사항 섹션에서 [공지 작성] 클릭" desc="관리자만 공지를 작성·수정·삭제할 수 있습니다." />
+        <HelpStep number={2} title="제목과 내용 입력 후 저장" desc="[📌 상단 고정] 체크 시 공지 목록 최상단에 고정됩니다." />
+        <HelpStep number={3} title="수정·삭제" desc="기존 공지의 [수정] 또는 [삭제] 버튼으로 관리합니다." />
+      </HelpCard>
+    </div>
+  );
+}
+
 /* ─── ADMIN PAGE ────────────────────────────────────────────────────── */
 function AdminPage() {
   const [tab, setTab]       = useState('pending');
@@ -3200,6 +3841,7 @@ export default function App() {
         {page === 'sales-query'    && <SalesQueryPage />}
         {page === 'products'       && <ProductsPage />}
         {page === 'admin'          && profile.role === 'admin' && <AdminPage />}
+        {page === 'help'           && <HelpPage />}
       </div>
     </div>
   );
