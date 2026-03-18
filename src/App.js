@@ -2306,6 +2306,11 @@ function ProductsPage() {
       const sheetName = wb.SheetNames.find(s => s.includes('상품리스트')) || wb.SheetNames[0];
       const ws = wb.Sheets[sheetName];
       const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', blankrows: true, raw: true });
+      console.log('시트명:', sheetName, '총 행수:', rows.length);
+      console.log('2행(헤더):', rows[1]);
+      console.log('3행(첫데이터):', rows[2]);
+      console.log('4행:', rows[3]);
+      console.log('전체 88코드 수:', rows.slice(2).filter(r => String(r[3]||'').startsWith('88')).length);
 
       // 2행이 헤더, 3행부터 데이터
       const upsertRows = [];
