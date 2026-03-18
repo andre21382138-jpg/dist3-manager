@@ -829,6 +829,7 @@ function PendingPage({ profile, onLogout }) {
 /* ─── SIDEBAR ────────────────────────────────────────────────────────── */
 function Sidebar({ profile, currentPage, onNavigate, onLogout }) {
   const isAdmin = profile?.role === 'admin';
+
   return (
     <div className="sidebar">
       <div className="sidebar-header">
@@ -849,15 +850,23 @@ function Sidebar({ profile, currentPage, onNavigate, onLogout }) {
           <Icon name="home" /> 홈
         </button>
 
-        <div className="nav-section-label">업무</div>
+        <div className="nav-section-label">데이터 업로드</div>
         <button className={`nav-item ${currentPage==='purchase' ? 'active' : ''}`} onClick={() => onNavigate('purchase')}>
           <Icon name="truck" /> 매입
         </button>
         <button className={`nav-item ${currentPage==='sales' ? 'active' : ''}`} onClick={() => onNavigate('sales')}>
-          <Icon name="chart" /> 매출
+          <Icon name="upload" /> 매출
         </button>
         <button className={`nav-item ${currentPage==='history' ? 'active' : ''}`} onClick={() => onNavigate('history')}>
           <Icon name="history" /> 업로드 이력
+        </button>
+
+        <div className="nav-section-label">데이터 조회</div>
+        <button className={`nav-item ${currentPage==='purchase-query' ? 'active' : ''}`} onClick={() => onNavigate('purchase-query')}>
+          <Icon name="truck" /> 매입
+        </button>
+        <button className={`nav-item ${currentPage==='sales-query' ? 'active' : ''}`} onClick={() => onNavigate('sales-query')}>
+          <Icon name="chart" /> 매출
         </button>
 
         {isAdmin && (
@@ -865,6 +874,9 @@ function Sidebar({ profile, currentPage, onNavigate, onLogout }) {
             <div className="nav-section-label">관리자</div>
             <button className={`nav-item ${currentPage==='admin' ? 'active' : ''}`} onClick={() => onNavigate('admin')}>
               <Icon name="users" /> 사용자 관리
+            </button>
+            <button className={`nav-item ${currentPage==='products' ? 'active' : ''}`} onClick={() => onNavigate('products')}>
+              <Icon name="grid" /> 상품 관리
             </button>
           </>
         )}
@@ -2264,6 +2276,354 @@ function HistoryPage({ profile }) {
   );
 }
 
+/* ─── PRODUCTS PAGE (상품 관리) ─────────────────────────────────────── */
+function ProductsPage() {
+  const [products, setProducts]   = useState([]);
+  const [loading, setLoading]     = useState(true);
+  const [uploading, setUploading] = useState(false);
+  const [msg, setMsg]             = useState(null);
+  const [search, setSearch]       = useState('');
+  const fileRef                   = useRef();
+
+  useEffect(() => { loadProducts(); }, []);
+
+  async function loadProducts() {
+    setLoading(true);
+    const { data } = await supabase.from('products').select('*').order('product_code');
+    setProducts(data || []);
+    setLoading(false);
+  }
+
+  async function handleUpload(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    setUploading(true); setMsg(null);
+    try {
+      const ab = await file.arrayBuffer();
+      const wb = XLSX.read(ab, { type: 'array' });
+      // '상품리스트' 시트 찾기
+      const sheetName = wb.SheetNames.find(s => s.includes('상품리스트')) || wb.SheetNames[0];
+      const ws = wb.Sheets[sheetName];
+      const rows = XLSX.utils.sheet_to_json(ws, { header: 1 });
+
+      // 2행이 헤더, 3행부터 데이터
+      const upsertRows = [];
+      for (let i = 2; i < rows.length; i++) {
+        const r = rows[i];
+        const code = String(r[3] || '').trim();
+        if (!code || !code.startsWith('88')) continue;
+        upsertRows.push({
+          product_code: code,
+          product_name: r[5] || null,
+          brand:        r[6] || null,
+          category_1:   r[7] || null,
+          category_2:   r[8] || null,
+          category_3:   r[9] || null,
+          final_cost:   Number(r[20]) || null,
+          normal_price: Number(r[24]) || null,
+          sale_price:   Number(r[25]) || null,
+          is_active:    String(r[2] || '').trim() === 'O',
+          updated_at:   new Date().toISOString(),
+        });
+      }
+
+      if (!upsertRows.length) throw new Error('상품 데이터를 찾을 수 없습니다.');
+
+      // 배치로 upsert
+      const BATCH = 100;
+      for (let i = 0; i < upsertRows.length; i += BATCH) {
+        const { error } = await supabase.from('products').upsert(upsertRows.slice(i, i + BATCH), { onConflict: 'product_code' });
+        if (error) throw error;
+      }
+      setMsg({ type: 'success', text: `✅ ${upsertRows.length}개 상품 등록/업데이트 완료!` });
+      loadProducts();
+    } catch (err) {
+      setMsg({ type: 'error', text: `오류: ${err.message}` });
+    } finally {
+      setUploading(false);
+      if (fileRef.current) fileRef.current.value = '';
+    }
+  }
+
+  const filtered = products.filter(p =>
+    !search || p.product_code?.includes(search) || p.product_name?.includes(search) || p.brand?.includes(search)
+  );
+
+  return (
+    <div>
+      <div className="page-header">
+        <div className="page-title">상품 관리</div>
+        <div className="page-sub">상품리스트 엑셀 파일을 업로드하여 상품 정보를 등록/업데이트합니다.</div>
+      </div>
+
+      {/* 업로드 영역 */}
+      <div className="card" style={{ marginBottom: 20 }}>
+        <div className="card-title"><Icon name="upload" style={{ width:18,height:18 }} />상품리스트 업로드</div>
+        {msg && <div className={`alert alert-${msg.type}`} style={{ marginBottom: 12 }}>{msg.text}</div>}
+        <div style={{ display:'flex', alignItems:'center', gap: 12 }}>
+          <button className="btn btn-sm" style={{ background:'var(--blue)', color:'white' }}
+            disabled={uploading} onClick={() => fileRef.current?.click()}>
+            {uploading ? <><span className="loading-spinner" /> 업로드 중...</> : '📂 엑셀 파일 선택'}
+          </button>
+          <span style={{ fontSize:13, color:'var(--gray3)' }}>매출현황 엑셀 파일 (상품리스트 시트 포함)</span>
+        </div>
+        <input ref={fileRef} type="file" accept=".xlsx,.xls" style={{ display:'none' }} onChange={handleUpload} />
+      </div>
+
+      {/* 검색 + 테이블 */}
+      <div className="filter-bar">
+        <input className="filter-select" placeholder="상품코드, 상품명, 브랜드 검색" value={search}
+          onChange={e => setSearch(e.target.value)} style={{ minWidth: 240 }} />
+        <span style={{ fontSize:13, color:'var(--gray3)', marginLeft:'auto' }}>
+          총 <strong style={{ color:'var(--navy)' }}>{filtered.length}</strong>개
+        </span>
+      </div>
+
+      <div className="table-wrap">
+        {loading ? (
+          <div style={{ textAlign:'center', padding:48, color:'var(--gray3)' }}>불러오는 중...</div>
+        ) : filtered.length === 0 ? (
+          <div className="empty-state"><Icon name="file" style={{ width:48,height:48 }} /><p>등록된 상품이 없습니다.</p></div>
+        ) : (
+          <table>
+            <thead>
+              <tr>
+                <th>상품코드</th>
+                <th>브랜드</th>
+                <th>상품명</th>
+                <th>분류</th>
+                <th style={{ textAlign:'right' }}>최종원가</th>
+                <th style={{ textAlign:'right' }}>정상판매가</th>
+                <th style={{ textAlign:'right' }}>행사판매가</th>
+                <th>운영</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map(p => (
+                <tr key={p.product_code}>
+                  <td style={{ fontSize:12, fontFamily:'monospace' }}>{p.product_code}</td>
+                  <td style={{ fontSize:13 }}>{p.brand || '-'}</td>
+                  <td style={{ fontSize:13, maxWidth:260, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{p.product_name || '-'}</td>
+                  <td style={{ fontSize:12, color:'var(--gray4)' }}>{[p.category_1,p.category_2].filter(Boolean).join(' > ')}</td>
+                  <td style={{ textAlign:'right', fontSize:13 }}>{p.final_cost ? p.final_cost.toLocaleString() : '-'}</td>
+                  <td style={{ textAlign:'right', fontSize:13 }}>{p.normal_price ? p.normal_price.toLocaleString() : '-'}</td>
+                  <td style={{ textAlign:'right', fontSize:13 }}>{p.sale_price ? p.sale_price.toLocaleString() : '-'}</td>
+                  <td><span className={`badge ${p.is_active ? 'badge-green' : 'badge-red'}`}>{p.is_active ? '운영' : '중단'}</span></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ─── SALES QUERY PAGE (매출 데이터 조회) ───────────────────────────── */
+function SalesQueryPage() {
+  const [rows, setRows]           = useState([]);
+  const [loading, setLoading]     = useState(false);
+  const [filterVendor, setFilterVendor]     = useState('');
+  const [filterDateFrom, setFilterDateFrom] = useState('');
+  const [filterDateTo, setFilterDateTo]     = useState('');
+  const [searched, setSearched]   = useState(false);
+
+  async function loadData() {
+    setLoading(true); setSearched(true);
+    let q = supabase.from('sales_data').select('*');
+    if (filterVendor)   q = q.eq('vendor', filterVendor);
+    if (filterDateFrom) q = q.gte('date', filterDateFrom);
+    if (filterDateTo)   q = q.lte('date', filterDateTo);
+    q = q.order('date', { ascending: false }).order('vendor');
+    const { data: salesData } = await q;
+
+    if (!salesData?.length) { setRows([]); setLoading(false); return; }
+
+    // 상품 정보 조회
+    const codes = [...new Set(salesData.map(r => r.product_code))];
+    const { data: productData } = await supabase.from('products').select('*').in('product_code', codes);
+    const productMap = {};
+    (productData || []).forEach(p => { productMap[p.product_code] = p; });
+
+    // 조인
+    const joined = salesData.map(s => {
+      const p = productMap[s.product_code] || {};
+      const finalCost   = p.final_cost   || 0;
+      const normalPrice = p.normal_price || 0;
+      const qty = s.quantity || 0;
+      return {
+        date:        s.date,
+        vendor:      s.vendor,
+        brand:       p.brand       || '-',
+        product_name: p.product_name || s.product_code,
+        product_code: s.product_code,
+        final_cost:   finalCost,
+        normal_price: normalPrice,
+        sale_price:   p.sale_price  || null,
+        quantity:     qty,
+        total_cost:   finalCost * qty,
+        total_sales:  normalPrice * qty,
+        margin:       (normalPrice - finalCost) * qty,
+      };
+    });
+    setRows(joined);
+    setLoading(false);
+  }
+
+  // 합계
+  const totals = rows.reduce((acc, r) => ({
+    quantity:    acc.quantity    + r.quantity,
+    total_cost:  acc.total_cost  + r.total_cost,
+    total_sales: acc.total_sales + r.total_sales,
+    margin:      acc.margin      + r.margin,
+  }), { quantity:0, total_cost:0, total_sales:0, margin:0 });
+
+  function fmt(n) { return n ? Math.round(n).toLocaleString() : '-'; }
+
+  return (
+    <div>
+      <div className="page-header">
+        <div className="page-title">
+          <span style={{ background:'#f0fdf4', color:'#22c55e', padding:'2px 12px', borderRadius:20, fontSize:14, marginRight:8 }}>매출</span>
+          데이터 조회
+        </div>
+        <div className="page-sub">날짜 및 판매처 조건으로 매출 데이터를 조회합니다.</div>
+      </div>
+
+      {/* 검색 조건 */}
+      <div className="card" style={{ marginBottom:20 }}>
+        <div style={{ display:'flex', gap:12, flexWrap:'wrap', alignItems:'flex-end' }}>
+          <div>
+            <label className="form-label">판매처</label>
+            <select className="filter-select" value={filterVendor} onChange={e => setFilterVendor(e.target.value)}>
+              <option value="">전체</option>
+              {VENDORS.map(v => <option key={v}>{v}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="form-label">시작일</label>
+            <input type="date" className="filter-select" value={filterDateFrom} onChange={e => setFilterDateFrom(e.target.value)} />
+          </div>
+          <div>
+            <label className="form-label">종료일</label>
+            <input type="date" className="filter-select" value={filterDateTo} onChange={e => setFilterDateTo(e.target.value)} />
+          </div>
+          <button className="btn btn-sm" style={{ background:'var(--blue)', color:'white', minWidth:80 }}
+            disabled={loading} onClick={loadData}>
+            {loading ? <span className="loading-spinner" /> : '조회'}
+          </button>
+          {(filterVendor||filterDateFrom||filterDateTo) && (
+            <button className="btn btn-sm btn-outline" onClick={() => { setFilterVendor(''); setFilterDateFrom(''); setFilterDateTo(''); }}>초기화</button>
+          )}
+        </div>
+      </div>
+
+      {/* 결과 */}
+      {!searched ? (
+        <div className="empty-state" style={{ background:'white', borderRadius:10, padding:64 }}>
+          <Icon name="chart" style={{ width:48,height:48 }} />
+          <p>조건을 선택하고 조회 버튼을 눌러주세요.</p>
+        </div>
+      ) : (
+        <>
+          {/* 요약 카드 */}
+          {rows.length > 0 && (
+            <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:12, marginBottom:20 }}>
+              {[
+                { label:'판매수량', value: totals.quantity.toLocaleString() + ' EA', color:'#2563eb' },
+                { label:'총판매원가', value: fmt(totals.total_cost) + ' 원', color:'#ef4444' },
+                { label:'총판매금액', value: fmt(totals.total_sales) + ' 원', color:'#22c55e' },
+                { label:'마진', value: fmt(totals.margin) + ' 원', color:'#a855f7' },
+              ].map(s => (
+                <div key={s.label} style={{ background:'white', borderRadius:10, padding:'16px 20px', boxShadow:'var(--shadow)', borderTop:`3px solid ${s.color}` }}>
+                  <div style={{ fontSize:12, color:'var(--gray3)', marginBottom:6 }}>{s.label}</div>
+                  <div style={{ fontSize:16, fontWeight:700, color: s.color }}>{s.value}</div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div className="table-wrap">
+            {rows.length === 0 ? (
+              <div className="empty-state"><Icon name="file" style={{ width:48,height:48 }} /><p>조회 결과가 없습니다.</p></div>
+            ) : (
+              <div style={{ overflowX:'auto' }}>
+                <table style={{ minWidth:1000 }}>
+                  <thead>
+                    <tr>
+                      <th>날짜</th>
+                      <th>판매처</th>
+                      <th>브랜드</th>
+                      <th>상품명</th>
+                      <th style={{ textAlign:'right' }}>최종원가</th>
+                      <th style={{ textAlign:'right' }}>정상판매가</th>
+                      <th style={{ textAlign:'right' }}>행사판매가</th>
+                      <th style={{ textAlign:'right' }}>판매수량</th>
+                      <th style={{ textAlign:'right' }}>총판매원가</th>
+                      <th style={{ textAlign:'right' }}>총판매금액</th>
+                      <th style={{ textAlign:'right' }}>마진</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map((r, i) => (
+                      <tr key={i}>
+                        <td style={{ fontVariantNumeric:'tabular-nums', whiteSpace:'nowrap' }}>{r.date}</td>
+                        <td>
+                          <span style={{ display:'inline-flex', alignItems:'center', gap:5 }}>
+                            <span className="vendor-dot" style={{ background: VENDOR_COLORS[r.vendor]||'#94a3b8' }} />
+                            {r.vendor}
+                          </span>
+                        </td>
+                        <td style={{ fontSize:13 }}>{r.brand}</td>
+                        <td style={{ fontSize:13, maxWidth:200, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{r.product_name}</td>
+                        <td style={{ textAlign:'right', fontSize:13 }}>{fmt(r.final_cost)}</td>
+                        <td style={{ textAlign:'right', fontSize:13 }}>{fmt(r.normal_price)}</td>
+                        <td style={{ textAlign:'right', fontSize:13, color:'var(--gray3)' }}>{r.sale_price ? fmt(r.sale_price) : '-'}</td>
+                        <td style={{ textAlign:'right', fontWeight:600 }}>{r.quantity.toLocaleString()}</td>
+                        <td style={{ textAlign:'right', fontSize:13 }}>{fmt(r.total_cost)}</td>
+                        <td style={{ textAlign:'right', fontSize:13, fontWeight:600 }}>{fmt(r.total_sales)}</td>
+                        <td style={{ textAlign:'right', fontSize:13, color: r.margin >= 0 ? '#22c55e' : '#ef4444', fontWeight:600 }}>{fmt(r.margin)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr style={{ background:'var(--gray1)', fontWeight:700 }}>
+                      <td colSpan={7} style={{ textAlign:'center', fontSize:13 }}>합계</td>
+                      <td style={{ textAlign:'right' }}>{totals.quantity.toLocaleString()}</td>
+                      <td style={{ textAlign:'right' }}>{fmt(totals.total_cost)}</td>
+                      <td style={{ textAlign:'right' }}>{fmt(totals.total_sales)}</td>
+                      <td style={{ textAlign:'right', color: totals.margin >= 0 ? '#22c55e' : '#ef4444' }}>{fmt(totals.margin)}</td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+/* ─── PURCHASE QUERY PAGE (매입 데이터 조회 - 준비 중) ──────────────── */
+function PurchaseQueryPage() {
+  return (
+    <div>
+      <div className="page-header">
+        <div className="page-title">
+          <span style={{ background:'#eff6ff', color:'#2563eb', padding:'2px 12px', borderRadius:20, fontSize:14, marginRight:8 }}>매입</span>
+          데이터 조회
+        </div>
+      </div>
+      <div className="empty-state" style={{ background:'white', borderRadius:10, padding:80 }}>
+        <Icon name="truck" style={{ width:48,height:48 }} />
+        <p style={{ marginTop:12, fontSize:15, fontWeight:600, color:'var(--navy)' }}>준비 중입니다.</p>
+        <p style={{ marginTop:6 }}>매입 데이터 조회 기능은 곧 추가될 예정입니다.</p>
+      </div>
+    </div>
+  );
+}
+
 /* ─── ADMIN PAGE ────────────────────────────────────────────────────── */
 function AdminPage() {
   const [tab, setTab]       = useState('pending');
@@ -2430,11 +2790,14 @@ export default function App() {
     <div className="app-layout">
       <Sidebar profile={profile} currentPage={page} onNavigate={setPage} onLogout={handleLogout} />
       <div className="main-content">
-        {page === 'home'     && <HomePage onNavigate={setPage} profile={profile} />}
-        {page === 'purchase' && <UploadPage type="매입" profile={profile} key="purchase" />}
-        {page === 'sales'    && <UploadPage type="매출" profile={profile} key="sales" />}
-        {page === 'history'  && <HistoryPage profile={profile} />}
-        {page === 'admin'    && profile.role === 'admin' && <AdminPage />}
+        {page === 'home'           && <HomePage onNavigate={setPage} profile={profile} />}
+        {page === 'purchase'       && <UploadPage type="매입" profile={profile} key="purchase" />}
+        {page === 'sales'          && <UploadPage type="매출" profile={profile} key="sales" />}
+        {page === 'history'        && <HistoryPage profile={profile} />}
+        {page === 'purchase-query' && <PurchaseQueryPage />}
+        {page === 'sales-query'    && <SalesQueryPage />}
+        {page === 'products'       && profile.role === 'admin' && <ProductsPage />}
+        {page === 'admin'          && profile.role === 'admin' && <AdminPage />}
       </div>
     </div>
   );
