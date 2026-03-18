@@ -2335,13 +2335,18 @@ function ProductsPage() {
 
       if (!upsertRows.length) throw new Error('상품 데이터를 찾을 수 없습니다.');
 
+      // 상품코드 중복 제거 (마지막 값 기준)
+      const deduped = Object.values(
+        upsertRows.reduce((acc, r) => { acc[r.product_code] = r; return acc; }, {})
+      );
+
       // 배치로 upsert
       const BATCH = 100;
-      for (let i = 0; i < upsertRows.length; i += BATCH) {
-        const { error } = await supabase.from('products').upsert(upsertRows.slice(i, i + BATCH), { onConflict: 'product_code' });
+      for (let i = 0; i < deduped.length; i += BATCH) {
+        const { error } = await supabase.from('products').upsert(deduped.slice(i, i + BATCH), { onConflict: 'product_code' });
         if (error) throw error;
       }
-      setMsg({ type: 'success', text: `✅ ${upsertRows.length}개 상품 등록/업데이트 완료!` });
+      setMsg({ type: 'success', text: `✅ ${deduped.length}개 상품 등록/업데이트 완료!` });
       loadProducts();
     } catch (err) {
       setMsg({ type: 'error', text: `오류: ${err.message}` });
