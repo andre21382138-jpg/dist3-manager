@@ -1474,7 +1474,9 @@ async function detectAndParseFile(file, dataType = '매출') {
 
       const vendor = detectVendorFromText(htmlStr);
       const date   = extractDate(htmlStr);
+      console.log('HTML 파싱 - vendor:', vendor, 'date:', date, 'htmlStr 앞100:', htmlStr.substring(0,100));
       const tables = parseHtmlTables(htmlStr);
+      console.log('테이블 수:', tables.length, tables.map(t => t.length + '행'));
       const items  = [];
 
       if (dataType === '매출') {
