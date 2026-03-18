@@ -1339,6 +1339,8 @@ function detectVendorFromText(text) {
   if (text.includes('롯데슈퍼'))  return '롯데슈퍼';
   if (text.includes('Hyper'))    return '홈플러스';
   if (text.includes('Express'))  return '익스프레스';
+  // EUC-KR 깨진 경우 - '홈'이 포함된 특정 패턴
+  if (text.includes('홈占') || text.includes('홈플')) return '홈플러스';
   return null;
 }
 
@@ -1466,10 +1468,15 @@ async function detectAndParseFile(file, dataType = '매출') {
       // HTML xls
       let htmlStr;
       const utf8Peek = new TextDecoder('utf-8').decode(arrayBuffer.slice(0, 500));
-      if (utf8Peek.toLowerCase().includes('utf-8')) {
+      const isUtf8 = utf8Peek.toLowerCase().includes('utf-8');
+      if (isUtf8) {
         htmlStr = new TextDecoder('utf-8').decode(arrayBuffer);
       } else {
-        htmlStr = new TextDecoder('euc-kr').decode(arrayBuffer);
+        // EUC-KR: charset 메타 태그를 utf-8로 바꿔서 DOMParser가 올바르게 해석하도록
+        const raw = new TextDecoder('euc-kr').decode(arrayBuffer);
+        htmlStr = raw.replace(/charset=euc-kr/gi, 'charset=utf-8')
+                     .replace(/charset="euc-kr"/gi, 'charset="utf-8"')
+                     .replace(/charset='euc-kr'/gi, "charset='utf-8'");
       }
 
       const vendor = detectVendorFromText(htmlStr);
