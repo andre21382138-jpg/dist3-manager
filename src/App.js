@@ -2260,8 +2260,10 @@ function UploadPage({ type, profile }) {
 function HistoryPage({ profile }) {
   const [rows, setRows]         = useState([]);
   const [loading, setLoading]   = useState(true);
-  const [filterType, setFilterType]   = useState('');
+  const [filterType, setFilterType]     = useState('');
   const [filterVendor, setFilterVendor] = useState('');
+  const [selected, setSelected] = useState(new Set());
+  const [deleting, setDeleting] = useState(false);
 
   const isAdmin = profile?.role === 'admin';
 
@@ -2271,12 +2273,21 @@ function HistoryPage({ profile }) {
 
   async function loadHistory() {
     setLoading(true);
+    setSelected(new Set());
     let q = supabase.from('uploads').select('*').order('created_at', { ascending: false });
     if (filterType)   q = q.eq('type', filterType);
     if (filterVendor) q = q.eq('vendor', filterVendor);
     const { data } = await q;
     setRows(data || []);
     setLoading(false);
+  }
+
+  function toggleSelect(id) {
+    setSelected(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
+  }
+  function toggleAll() {
+    const deletable = rows.filter(r => isAdmin || r.user_id === profile?.id);
+    setSelected(prev => prev.size === deletable.length ? new Set() : new Set(deletable.map(r => r.id)));
   }
 
   async function handleDownload(row) {
@@ -2290,6 +2301,22 @@ function HistoryPage({ profile }) {
     await supabase.from('uploads').delete().eq('id', row.id);
     loadHistory();
   }
+
+  async function handleBulkDelete() {
+    if (!selected.size) return;
+    if (!window.confirm(`선택한 ${selected.size}개 파일을 삭제하시겠습니까?`)) return;
+    setDeleting(true);
+    const targets = rows.filter(r => selected.has(r.id));
+    const paths   = targets.map(r => r.file_path);
+    const ids     = targets.map(r => r.id);
+    await supabase.storage.from('excel-uploads').remove(paths);
+    await supabase.from('uploads').delete().in('id', ids);
+    setDeleting(false);
+    loadHistory();
+  }
+
+  const deletableRows = rows.filter(r => isAdmin || r.user_id === profile?.id);
+  const allSelected   = deletableRows.length > 0 && selected.size === deletableRows.length;
 
   return (
     <div>
@@ -2309,20 +2336,33 @@ function HistoryPage({ profile }) {
           {VENDORS.map(v => <option key={v}>{v}</option>)}
         </select>
         <button className="btn btn-outline btn-sm" onClick={loadHistory}>새로고침</button>
+        <div style={{ marginLeft:'auto', display:'flex', gap:8, alignItems:'center' }}>
+          {selected.size > 0 && (
+            <>
+              <span style={{ fontSize:13, color:'var(--gray3)' }}>{selected.size}개 선택</span>
+              <button className="btn btn-sm btn-danger" disabled={deleting} onClick={handleBulkDelete}>
+                {deleting ? <span className="loading-spinner" style={{ borderColor:'rgba(239,68,68,.3)', borderTopColor:'#ef4444' }} /> : '🗑 선택 삭제'}
+              </button>
+            </>
+          )}
+        </div>
       </div>
 
       <div className="table-wrap">
         {loading ? (
-          <div style={{ textAlign: 'center', padding: 48, color: 'var(--gray3)' }}>불러오는 중...</div>
+          <div style={{ textAlign:'center', padding:48, color:'var(--gray3)' }}>불러오는 중...</div>
         ) : rows.length === 0 ? (
           <div className="empty-state">
-            <Icon name="file" style={{ width: 48, height: 48 }} />
+            <Icon name="file" style={{ width:48, height:48 }} />
             <p>업로드 이력이 없습니다.</p>
           </div>
         ) : (
           <table>
             <thead>
               <tr>
+                <th style={{ width:40 }}>
+                  <input type="checkbox" checked={allSelected} onChange={toggleAll} />
+                </th>
                 <th>구분</th>
                 <th>판매처</th>
                 <th>날짜</th>
@@ -2333,38 +2373,47 @@ function HistoryPage({ profile }) {
               </tr>
             </thead>
             <tbody>
-              {rows.map(row => (
-                <tr key={row.id}>
-                  <td>
-                    <span className={`badge ${row.type === '매입' ? 'badge-blue' : 'badge-green'}`}>
-                      {row.type}
-                    </span>
-                  </td>
-                  <td>
-                    <span className="vendor-dot" style={{ background: VENDOR_COLORS[row.vendor] || '#94a3b8' }} />
-                    {row.vendor}
-                  </td>
-                  <td style={{ fontVariantNumeric: 'tabular-nums' }}>{row.date}</td>
-                  <td style={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 13, color: 'var(--gray4)' }}>
-                    <Icon name="file" style={{ width: 14, height: 14, marginRight: 4, verticalAlign: 'middle' }} />
-                    {row.file_name}
-                  </td>
-                  <td style={{ fontSize: 13 }}>{row.user_name}</td>
-                  <td style={{ fontSize: 13, color: 'var(--gray3)', fontVariantNumeric: 'tabular-nums' }}>{fmtDateTime(row.created_at)}</td>
-                  <td>
-                    <div style={{ display: 'flex', gap: 6 }}>
-                      <button className="btn btn-sm btn-blue-light" onClick={() => handleDownload(row)} title="다운로드">
-                        <Icon name="download" style={{ width: 14, height: 14 }} />
-                      </button>
-                      {(isAdmin || row.user_id === profile?.id) && (
-                        <button className="btn btn-sm btn-danger" onClick={() => handleDelete(row)} title="삭제">
-                          <Icon name="x" style={{ width: 14, height: 14 }} />
-                        </button>
+              {rows.map(row => {
+                const canDelete = isAdmin || row.user_id === profile?.id;
+                return (
+                  <tr key={row.id} style={{ cursor: canDelete ? 'pointer' : 'default' }}
+                    onClick={() => canDelete && toggleSelect(row.id)}>
+                    <td onClick={e => e.stopPropagation()}>
+                      {canDelete && (
+                        <input type="checkbox" checked={selected.has(row.id)} onChange={() => toggleSelect(row.id)} />
                       )}
-                    </div>
-                  </td>
-                </tr>
-              ))}
+                    </td>
+                    <td>
+                      <span className={`badge ${row.type === '매입' ? 'badge-blue' : 'badge-green'}`}>
+                        {row.type}
+                      </span>
+                    </td>
+                    <td>
+                      <span className="vendor-dot" style={{ background: VENDOR_COLORS[row.vendor] || '#94a3b8' }} />
+                      {row.vendor}
+                    </td>
+                    <td style={{ fontVariantNumeric:'tabular-nums' }}>{row.date}</td>
+                    <td style={{ maxWidth:200, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', fontSize:13, color:'var(--gray4)' }}>
+                      <Icon name="file" style={{ width:14, height:14, marginRight:4, verticalAlign:'middle' }} />
+                      {row.file_name}
+                    </td>
+                    <td style={{ fontSize:13 }}>{row.user_name}</td>
+                    <td style={{ fontSize:13, color:'var(--gray3)', fontVariantNumeric:'tabular-nums' }}>{fmtDateTime(row.created_at)}</td>
+                    <td onClick={e => e.stopPropagation()}>
+                      <div style={{ display:'flex', gap:6 }}>
+                        <button className="btn btn-sm btn-blue-light" onClick={() => handleDownload(row)} title="다운로드">
+                          <Icon name="download" style={{ width:14, height:14 }} />
+                        </button>
+                        {canDelete && (
+                          <button className="btn btn-sm btn-danger" onClick={() => handleDelete(row)} title="삭제">
+                            <Icon name="x" style={{ width:14, height:14 }} />
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         )}
