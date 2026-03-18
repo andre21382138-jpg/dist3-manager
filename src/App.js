@@ -1218,10 +1218,10 @@ function VendorSummaryCard({ type, metric, color, bgColor }) {
         (rows || []).forEach(r => { map[r.vendor] = (map[r.vendor] || 0) + 1; });
 
       } else if (type === '매출' && metric === '건수') {
-        // 매출 상품 건수 (rows)
+        // 매출 판매수량 합계
         const { data: rows } = await supabase.from('sales_data')
-          .select('vendor').gte('date', from).lte('date', to);
-        (rows || []).forEach(r => { map[r.vendor] = (map[r.vendor] || 0) + 1; });
+          .select('vendor, quantity').gte('date', from).lte('date', to);
+        (rows || []).forEach(r => { map[r.vendor] = (map[r.vendor] || 0) + (r.quantity || 0); });
 
       } else if (type === '매출' && metric === '매출액') {
         // 매출액 = quantity * normal_price
@@ -1248,11 +1248,11 @@ function VendorSummaryCard({ type, metric, color, bgColor }) {
   const total = data.reduce((s, d) => s + d.value, 0);
   const isMoney = metric === '매출액' || metric === '공급가';
   const fmtVal  = v => isMoney ? (v >= 10000 ? (v/10000).toFixed(0)+'만' : v.toLocaleString()) : v.toLocaleString();
-  const fmtTotal = v => isMoney ? Math.round(v/10000).toLocaleString()+'만원' : v.toLocaleString()+'건';
 
-  const metricLabel = metric === '건수' ? (type === '매입' ? '업로드 건수' : '상품 건수') :
+  const metricLabel = metric === '건수' ? (type === '매입' ? '업로드 건수' : '판매수량 합계') :
                       metric === '공급가' ? '공급가 기준' : '매출액 기준';
-
+  const fmtTotal = v => isMoney ? Math.round(v/10000).toLocaleString()+'만원' :
+                        (type === '매출' ? v.toLocaleString()+' EA' : v.toLocaleString()+'건');
   return (
     <div style={{ background:'white', borderRadius:12, padding:22, boxShadow:'var(--shadow)', flex:1 }}>
       {/* 헤더 */}
