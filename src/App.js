@@ -1510,19 +1510,44 @@ async function detectAndParseFile(file, dataType = '매출') {
           }
         } else if (vendor === '홈플러스' || vendor === '익스프레스') {
           // col: 상품코드[0] TPNB[1] 상품명[2] 매입구분[3] 점포구분[4] 점포코드[5] 점포명[6] 수량[7] 금액[8]
+          // 점포명에 EXP 포함 → 익스프레스, 아니면 홈플러스
           const dataTable = tables.length > 1 ? tables[1] : tables[0];
+          const hyperMap = {}, hyperAmt = {};
+          const expMap   = {}, expAmt   = {};
           for (let i = 1; i < dataTable.length; i++) {
             const r = dataTable[i];
+            if (r.length < 9) continue; // 소계행 제외
             const code = String(r[0] || '').trim();
             if (!code.match(/^\d{10,14}$/) || !code.startsWith('88')) continue;
-            const qty = Number(String(r[7]||'').replace(/,/g,'')) || 0;
-            const amt = Number(String(r[8]||'').replace(/,/g,'')) || 0;
-            items.push({ code, qty, amt });
+            const qty     = Number(String(r[7]||'').replace(/,/g,'')) || 0;
+            const amt     = Number(String(r[8]||'').replace(/,/g,'')) || 0;
+            const store   = String(r[6] || '');
+            if (store.includes('EXP')) {
+              expMap[code]   = (expMap[code]||0)   + qty;
+              expAmt[code]   = (expAmt[code]||0)   + amt;
+            } else {
+              hyperMap[code] = (hyperMap[code]||0) + qty;
+              hyperAmt[code] = (hyperAmt[code]||0) + amt;
+            }
           }
+          if (Object.keys(hyperMap).length > 0)
+            items.push(...Object.entries(hyperMap).map(([code,qty]) => ({ code, qty, amt: hyperAmt[code]||0, _v: '홈플러스' })));
+          if (Object.keys(expMap).length > 0)
+            items.push(...Object.entries(expMap).map(([code,qty]) => ({ code, qty, amt: expAmt[code]||0, _v: '익스프레스' })));
         }
       }
 
-      if (vendor && items.length > 0) results.push({ vendor, date, items });
+      if (vendor && items.length > 0) {
+        // 홈플러스/익스프레스 분리 처리
+        if (vendor === '홈플러스' || vendor === '익스프레스') {
+          const hyperItems = items.filter(i => i._v === '홈플러스');
+          const expItems   = items.filter(i => i._v === '익스프레스');
+          if (hyperItems.length > 0) results.push({ vendor: '홈플러스', date, items: hyperItems });
+          if (expItems.length > 0)   results.push({ vendor: '익스프레스', date, items: expItems });
+        } else {
+          results.push({ vendor, date, items });
+        }
+      }
     }
   } catch (e) {
     throw new Error(`파싱 실패: ${e.message}`);
