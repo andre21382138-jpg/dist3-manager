@@ -1469,7 +1469,6 @@ async function detectAndParseFile(file, dataType = '매출') {
       const utf8Peek = new TextDecoder('utf-8').decode(arrayBuffer.slice(0, 500));
       const isEucKr  = utf8Peek.toLowerCase().includes('euc-kr');
       const isUtf8   = utf8Peek.toLowerCase().includes('utf-8');
-      console.log('인코딩 감지 - isEucKr:', isEucKr, 'isUtf8:', isUtf8);
 
       if (isEucKr || (!isUtf8)) {
         // EUC-KR: charset 메타 태그를 utf-8로 바꿔서 DOMParser가 올바르게 해석하도록
@@ -1483,7 +1482,6 @@ async function detectAndParseFile(file, dataType = '매출') {
 
       const vendor = detectVendorFromText(htmlStr);
       const date   = extractDate(htmlStr);
-      console.log('vendor:', vendor, 'date:', date, 'dataType:', dataType);
       const tables = parseHtmlTables(htmlStr);
       const items  = [];
 
@@ -1497,9 +1495,12 @@ async function detectAndParseFile(file, dataType = '매출') {
             items.push({ code, qty: Number(String(r[4]||'').replace(/,/g,''))||0, amt: 0 });
           }
         } else if (vendor === '홈플러스' || vendor === '익스프레스') {
+          // col: 유통채널[0] 상품코드(바코드)[1] TPNB[2] 상품명[3] 수량[4]
+          // 테이블이 1개일 수도 있음
           const dataTable = tables.length > 1 ? tables[1] : tables[0];
           for (let i = 1; i < dataTable.length; i++) {
             const r = dataTable[i];
+            if (r.length < 5) continue;
             const code = String(r[1] || '').trim();
             if (!code.match(/^\d{10,14}$/) || !code.startsWith('88')) continue;
             items.push({ code, qty: Number(String(r[4]||'').replace(/,/g,''))||0, amt: 0 });
