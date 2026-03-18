@@ -1467,15 +1467,17 @@ async function detectAndParseFile(file, dataType = '매출') {
       // HTML xls
       let htmlStr;
       const utf8Peek = new TextDecoder('utf-8').decode(arrayBuffer.slice(0, 500));
-      const isUtf8 = utf8Peek.toLowerCase().includes('utf-8');
-      if (isUtf8) {
-        htmlStr = new TextDecoder('utf-8').decode(arrayBuffer);
-      } else {
+      const isEucKr  = utf8Peek.toLowerCase().includes('euc-kr');
+      const isUtf8   = utf8Peek.toLowerCase().includes('utf-8');
+
+      if (isEucKr || (!isUtf8)) {
         // EUC-KR: charset 메타 태그를 utf-8로 바꿔서 DOMParser가 올바르게 해석하도록
         const raw = new TextDecoder('euc-kr').decode(arrayBuffer);
         htmlStr = raw.replace(/charset=euc-kr/gi, 'charset=utf-8')
                      .replace(/charset="euc-kr"/gi, 'charset="utf-8"')
                      .replace(/charset='euc-kr'/gi, "charset='utf-8'");
+      } else {
+        htmlStr = new TextDecoder('utf-8').decode(arrayBuffer);
       }
 
       const vendor = detectVendorFromText(htmlStr);
