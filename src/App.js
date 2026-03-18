@@ -1330,80 +1330,6 @@ function HomePage({ onNavigate, profile }) {
 }
 
 /* ─── DUPLICATE MODAL ───────────────────────────────────────────────── */
-function DuplicateModal({ existing, newFile, onReplace, onAdd, onCancel }) {
-  return (
-    <div style={{
-      position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)',
-      display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999,
-    }}>
-      <div style={{
-        background: 'white', borderRadius: 16, padding: 32, maxWidth: 460, width: '90%',
-        boxShadow: '0 24px 64px rgba(0,0,0,.3)', animation: 'fadeUp .25s ease',
-      }}>
-        {/* 아이콘 */}
-        <div style={{
-          width: 52, height: 52, background: '#fef3c7', borderRadius: 50,
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          margin: '0 auto 16px', fontSize: 24,
-        }}>⚠️</div>
-
-        <div style={{ textAlign: 'center', marginBottom: 20 }}>
-          <div style={{ fontSize: 17, fontWeight: 700, color: 'var(--navy)', marginBottom: 8 }}>
-            동일한 날짜 데이터가 있습니다
-          </div>
-          <div style={{ fontSize: 13, color: 'var(--gray4)', lineHeight: 1.6 }}>
-            <strong>{existing.vendor}</strong> · <strong>{existing.date}</strong> 에<br/>
-            이미 업로드된 파일이 있습니다.
-          </div>
-        </div>
-
-        {/* 기존 파일 정보 */}
-        <div style={{
-          background: '#fef3c7', borderRadius: 10, padding: '12px 16px',
-          marginBottom: 8, fontSize: 13,
-        }}>
-          <div style={{ color: '#92400e', fontWeight: 600, marginBottom: 4 }}>기존 파일</div>
-          <div style={{ color: '#78350f' }}>📄 {existing.file_name}</div>
-          <div style={{ color: '#92400e', fontSize: 12, marginTop: 2 }}>
-            업로드: {fmtDateTime(existing.created_at)} · {existing.user_name}
-          </div>
-        </div>
-
-        {/* 새 파일 정보 */}
-        <div style={{
-          background: '#f0fdf4', borderRadius: 10, padding: '12px 16px',
-          marginBottom: 24, fontSize: 13,
-        }}>
-          <div style={{ color: '#15803d', fontWeight: 600, marginBottom: 4 }}>새 파일</div>
-          <div style={{ color: '#166534' }}>📄 {newFile.name}</div>
-          <div style={{ color: '#15803d', fontSize: 12, marginTop: 2 }}>
-            {(newFile.size / 1024).toFixed(1)} KB
-          </div>
-        </div>
-
-        {/* 버튼 */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          <button className="btn" style={{
-            background: '#ef4444', color: 'white', width: '100%', padding: '12px',
-            fontSize: 14, fontWeight: 600,
-          }} onClick={onReplace}>
-            🔄 기존 파일 삭제 후 교체
-          </button>
-          <button className="btn" style={{
-            background: 'var(--blue)', color: 'white', width: '100%', padding: '12px',
-            fontSize: 14, fontWeight: 600,
-          }} onClick={onAdd}>
-            ➕ 기존 파일 유지하고 추가
-          </button>
-          <button className="btn btn-outline" style={{ width: '100%', padding: '11px' }}
-            onClick={onCancel}>
-            취소
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 /* ─── 판매처 파일 자동 감지 및 파싱 ─────────────────────────────────── */
 /* ─── 판매처 감지 헬퍼 ──────────────────────────────────────────────── */
@@ -1839,7 +1765,7 @@ function BulkUploadForm({ type, profile, onUploaded }) {
 }
 
 /* ─── SALES DATA VIEW (매출 데이터 조회) ────────────────────────────── */
-function SalesDataView({ profile, refreshKey }) { // eslint-disable-line no-unused-vars
+function SalesDataView({ profile, refreshKey }) {
   const [summaries, setSummaries] = useState([]);
   const [loading, setLoading]     = useState(true);
   const [filterVendor, setFilterVendor]     = useState('');
