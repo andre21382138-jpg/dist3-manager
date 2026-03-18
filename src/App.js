@@ -860,6 +860,9 @@ function Sidebar({ profile, currentPage, onNavigate, onLogout }) {
         <button className={`nav-item ${currentPage==='history' ? 'active' : ''}`} onClick={() => onNavigate('history')}>
           <Icon name="history" /> 업로드 이력
         </button>
+        <button className={`nav-item ${currentPage==='products' ? 'active' : ''}`} onClick={() => onNavigate('products')}>
+          <Icon name="grid" /> 상품DB 업로드
+        </button>
 
         <div className="nav-section-label">데이터 조회</div>
         <button className={`nav-item ${currentPage==='purchase-query' ? 'active' : ''}`} onClick={() => onNavigate('purchase-query')}>
@@ -874,9 +877,6 @@ function Sidebar({ profile, currentPage, onNavigate, onLogout }) {
             <div className="nav-section-label">관리자</div>
             <button className={`nav-item ${currentPage==='admin' ? 'active' : ''}`} onClick={() => onNavigate('admin')}>
               <Icon name="users" /> 사용자 관리
-            </button>
-            <button className={`nav-item ${currentPage==='products' ? 'active' : ''}`} onClick={() => onNavigate('products')}>
-              <Icon name="grid" /> 상품 관리
             </button>
           </>
         )}
@@ -2881,7 +2881,7 @@ export default function App() {
         {page === 'history'        && <HistoryPage profile={profile} />}
         {page === 'purchase-query' && <PurchaseQueryPage />}
         {page === 'sales-query'    && <SalesQueryPage />}
-        {page === 'products'       && profile.role === 'admin' && <ProductsPage />}
+        {page === 'products'       && <ProductsPage />}
         {page === 'admin'          && profile.role === 'admin' && <AdminPage />}
       </div>
     </div>
