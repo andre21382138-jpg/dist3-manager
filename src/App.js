@@ -1189,40 +1189,114 @@ function NoticeBoard({ profile }) {
 }
 
 /* ─── HOME PAGE ────────────────────────────────────────────────────── */
+function VendorSummaryCard({ type, color, bgColor }) {
+  const [data, setData]       = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const now   = new Date();
+    const year  = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const from  = `${year}-${month}-01`;
+    const lastDay = new Date(year, now.getMonth() + 1, 0).getDate();
+    const to    = `${year}-${month}-${lastDay}`;
+
+    async function load() {
+      setLoading(true);
+      if (type === '매출') {
+        const { data: rows } = await supabase.from('sales_data')
+          .select('vendor, quantity')
+          .gte('date', from).lte('date', to);
+        const map = {};
+        (rows || []).forEach(r => {
+          map[r.vendor] = (map[r.vendor] || 0) + (r.quantity || 0);
+        });
+        setData(VENDORS.map(v => ({ vendor: v, value: map[v] || 0 })).filter(d => d.value > 0));
+      } else {
+        const { data: rows } = await supabase.from('uploads')
+          .select('vendor')
+          .eq('type', '매입')
+          .gte('date', from).lte('date', to);
+        const map = {};
+        (rows || []).forEach(r => { map[r.vendor] = (map[r.vendor] || 0) + 1; });
+        setData(VENDORS.map(v => ({ vendor: v, value: map[v] || 0 })).filter(d => d.value > 0));
+      }
+      setLoading(false);
+    }
+    load();
+  }, [type]);
+
+  const total = data.reduce((s, d) => s + d.value, 0);
+  const now   = new Date();
+  const monthLabel = `${now.getFullYear()}년 ${now.getMonth()+1}월`;
+  const unit  = type === '매출' ? '건(수량)' : '건(업로드)';
+
+  return (
+    <div style={{ background:'white', borderRadius:12, padding:24, boxShadow:'var(--shadow)', flex:1 }}>
+      {/* 헤더 */}
+      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:16 }}>
+        <div>
+          <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+            <span style={{ background:bgColor, color, padding:'2px 10px', borderRadius:20, fontSize:12, fontWeight:600 }}>{type}</span>
+            <span style={{ fontSize:15, fontWeight:700, color:'var(--navy)' }}>판매처별 현황</span>
+          </div>
+          <div style={{ fontSize:12, color:'var(--gray3)', marginTop:4 }}>{monthLabel} 누적</div>
+        </div>
+        <div style={{ textAlign:'right' }}>
+          <div style={{ fontSize:11, color:'var(--gray3)' }}>전체 합계</div>
+          <div style={{ fontSize:18, fontWeight:700, color }}>{total.toLocaleString()} <span style={{ fontSize:11, fontWeight:400 }}>{unit}</span></div>
+        </div>
+      </div>
+
+      {loading ? (
+        <div style={{ textAlign:'center', padding:32, color:'var(--gray3)', fontSize:13 }}>불러오는 중...</div>
+      ) : data.length === 0 ? (
+        <div style={{ textAlign:'center', padding:32, color:'var(--gray3)', fontSize:13 }}>당월 데이터가 없습니다.</div>
+      ) : (
+        <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+          {data.sort((a,b) => b.value - a.value).map(d => {
+            const pct = total > 0 ? Math.round(d.value / total * 100) : 0;
+            const vc  = VENDOR_COLORS[d.vendor] || color;
+            return (
+              <div key={d.vendor}>
+                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:4 }}>
+                  <div style={{ display:'flex', alignItems:'center', gap:7 }}>
+                    <span className="vendor-dot" style={{ background:vc, width:9, height:9 }} />
+                    <span style={{ fontSize:13, fontWeight:500, color:'var(--navy)' }}>{d.vendor}</span>
+                  </div>
+                  <div style={{ fontSize:13, color:'var(--gray4)' }}>
+                    <strong style={{ color:'var(--navy)' }}>{d.value.toLocaleString()}</strong>
+                    <span style={{ fontSize:11, marginLeft:4, color:'var(--gray3)' }}>{pct}%</span>
+                  </div>
+                </div>
+                {/* 바 차트 */}
+                <div style={{ height:6, background:'var(--gray2)', borderRadius:4, overflow:'hidden' }}>
+                  <div style={{ height:'100%', width:`${pct}%`, background:vc, borderRadius:4, transition:'width .5s ease' }} />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function HomePage({ onNavigate, profile }) {
+  const now = new Date();
+  const monthLabel = `${now.getFullYear()}년 ${now.getMonth()+1}월`;
+
   return (
     <div>
       <div className="page-header">
         <div className="page-title">대시보드</div>
-        <div className="page-sub">매입/매출 파일을 업로드하고 이력을 관리하세요.</div>
+        <div className="page-sub">{monthLabel} 판매처별 매입·매출 현황</div>
       </div>
 
-      {/* 메뉴 카드 - 일렬 */}
-      <div style={{ display: 'flex', gap: 16, marginBottom: 32 }}>
-        <div className="menu-card" style={{ flex: 1 }} onClick={() => onNavigate('purchase')}>
-          <div className="menu-card-icon" style={{ background: '#eff6ff' }}>
-            <Icon name="truck" style={{ color: '#2563eb' }} />
-          </div>
-          <div className="menu-card-title">매입</div>
-          <div className="menu-card-desc">판매처별 매입 엑셀 파일을 업로드합니다.</div>
-          <div className="menu-card-arrow">바로가기 <Icon name="arrow" style={{ width: 14, height: 14 }} /></div>
-        </div>
-        <div className="menu-card" style={{ flex: 1 }} onClick={() => onNavigate('sales')}>
-          <div className="menu-card-icon" style={{ background: '#f0fdf4' }}>
-            <Icon name="chart" style={{ color: '#22c55e' }} />
-          </div>
-          <div className="menu-card-title">매출</div>
-          <div className="menu-card-desc">판매처별 매출 엑셀 파일을 업로드합니다.</div>
-          <div className="menu-card-arrow">바로가기 <Icon name="arrow" style={{ width: 14, height: 14 }} /></div>
-        </div>
-        <div className="menu-card" style={{ flex: 1 }} onClick={() => onNavigate('history')}>
-          <div className="menu-card-icon" style={{ background: '#fdf4ff' }}>
-            <Icon name="history" style={{ color: '#a855f7' }} />
-          </div>
-          <div className="menu-card-title">업로드 이력</div>
-          <div className="menu-card-desc">매입·매출 파일 업로드 이력을 조회합니다.</div>
-          <div className="menu-card-arrow">바로가기 <Icon name="arrow" style={{ width: 14, height: 14 }} /></div>
-        </div>
+      {/* 매입/매출 현황 카드 */}
+      <div style={{ display:'flex', gap:20, marginBottom:28 }}>
+        <VendorSummaryCard type="매입" color="#2563eb" bgColor="#eff6ff" />
+        <VendorSummaryCard type="매출" color="#22c55e" bgColor="#f0fdf4" />
       </div>
 
       {/* 공지사항 */}
