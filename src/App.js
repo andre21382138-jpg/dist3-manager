@@ -2839,12 +2839,23 @@ function PurchaseQueryPage() {
     if (filterDateTo)   q = q.lte('date', filterDateTo);
     if (selVendors.size > 0) q = q.in('vendor', [...selVendors]);
     q = q.order('date', { ascending: false }).order('vendor');
-    const { data } = await q;
-    setRows(data || []);
+    const { data: purchaseData } = await q;
+
+    if (!purchaseData?.length) { setRows([]); setLoading(false); return; }
+
+    const codes = [...new Set(purchaseData.map(r => r.product_code))];
+    const { data: productData } = await supabase.from('products').select('product_code, product_name, brand').in('product_code', codes);
+    const productMap = {};
+    (productData || []).forEach(p => { productMap[p.product_code] = p; });
+
+    setRows(purchaseData.map(r => ({
+      ...r,
+      brand:        productMap[r.product_code]?.brand        || '-',
+      product_name: productMap[r.product_code]?.product_name || r.product_code,
+    })));
     setLoading(false);
   }
 
-  // 요약
   const totals = rows.reduce((acc, r) => ({
     quantity: acc.quantity + (r.quantity || 0),
     amount:   acc.amount   + (r.amount   || 0),
@@ -2852,50 +2863,32 @@ function PurchaseQueryPage() {
 
   function fmt(n) { return n ? Math.round(n).toLocaleString() : '-'; }
 
-  // 선택
-  function toggleSelect(key) {
-    setSelected(prev => { const s = new Set(prev); s.has(key) ? s.delete(key) : s.add(key); return s; });
+  function toggleSelect(id) {
+    setSelected(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
   }
   function toggleAll() {
-    const keys = [...new Set(rows.map(r => `${r.vendor}|${r.date}`))];
-    setSelected(prev => prev.size === keys.length ? new Set() : new Set(keys));
+    setSelected(prev => prev.size === rows.length ? new Set() : new Set(rows.map(r => r.id)));
   }
 
-  async function handleDownload(keys) {
-    if (!keys.size) return;
+  async function handleDownload(ids) {
+    if (!ids.size) return;
     setDownloading(true);
     try {
-      const conditions = Array.from(keys).map(k => { const [vendor, date] = k.split('|'); return { vendor, date }; });
-      let allRows = [];
-      for (const { vendor, date } of conditions) {
-        const { data } = await supabase.from('purchase_data').select('*').eq('vendor', vendor).eq('date', date);
-        allRows = allRows.concat(data || []);
-      }
-      const label     = conditions.length === 1 ? conditions[0].vendor : '통합';
-      const dateLabel = conditions.length === 1 ? conditions[0].date : new Date().toISOString().split('T')[0];
+      const targets = rows.filter(r => ids.has(r.id));
+      const vendors = [...new Set(targets.map(r => r.vendor))];
+      const dates   = [...new Set(targets.map(r => r.date))];
       await downloadPurchaseFormat(
-        allRows.map(r => ({
+        targets.map(r => ({
           업체명: r.vendor, 연도: r.year, 월: r.month, 일: r.day,
           일자: r.date, 상품코드: r.product_code,
           공급수량: r.quantity, 총액: r.amount || 0,
         })),
-        label, dateLabel
+        vendors.length === 1 ? vendors[0] : '통합',
+        dates.length === 1 ? dates[0] : new Date().toISOString().split('T')[0]
       );
     } catch(e) { console.error(e); }
     setDownloading(false);
   }
-
-  // 날짜/판매처별 요약
-  const summaryMap = {};
-  rows.forEach(r => {
-    const key = `${r.vendor}|${r.date}`;
-    if (!summaryMap[key]) summaryMap[key] = { vendor: r.vendor, date: r.date, count: 0, qty: 0, amt: 0 };
-    summaryMap[key].count++;
-    summaryMap[key].qty += r.quantity || 0;
-    summaryMap[key].amt += r.amount   || 0;
-  });
-  const summaries = Object.values(summaryMap).sort((a,b) => b.date.localeCompare(a.date) || a.vendor.localeCompare(b.vendor));
-  const allKeys   = summaries.map(s => `${s.vendor}|${s.date}`);
 
   return (
     <div>
@@ -2907,7 +2900,6 @@ function PurchaseQueryPage() {
         <div className="page-sub">조회 조건을 설정하고 조회 버튼을 눌러주세요.</div>
       </div>
 
-      {/* 검색 조건 */}
       <div className="card" style={{ marginBottom:20 }}>
         <div style={{ marginBottom:20 }}>
           <label className="form-label">조회기간</label>
@@ -2931,7 +2923,7 @@ function PurchaseQueryPage() {
               <button key={v} onClick={() => toggleVendor(v)}
                 style={{
                   padding:'5px 12px', borderRadius:20, fontSize:12, fontWeight:500, cursor:'pointer', transition:'all .15s',
-                  border: `1.5px solid ${selVendors.has(v) ? VENDOR_COLORS[v]||'var(--blue)' : 'var(--gray2)'}`,
+                  border:`1.5px solid ${selVendors.has(v) ? VENDOR_COLORS[v]||'var(--blue)' : 'var(--gray2)'}`,
                   background: selVendors.has(v) ? `${VENDOR_COLORS[v]||'var(--blue)'}15` : 'white',
                   color: selVendors.has(v) ? VENDOR_COLORS[v]||'var(--blue)' : 'var(--gray4)',
                 }}>
@@ -2957,13 +2949,12 @@ function PurchaseQueryPage() {
         </div>
       ) : (
         <>
-          {/* 요약 카드 */}
           {rows.length > 0 && (
             <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:12, marginBottom:20 }}>
               {[
                 { label:'총 공급수량', value: totals.quantity.toLocaleString() + ' EA', color:'#2563eb' },
                 { label:'총 공급금액', value: fmt(totals.amount) + ' 원', color:'#ef4444' },
-                { label:'조회 결과', value: summaries.length.toLocaleString() + ' 건', color:'#a855f7' },
+                { label:'조회 건수', value: rows.length.toLocaleString() + ' 건', color:'#a855f7' },
               ].map(s => (
                 <div key={s.label} style={{ background:'white', borderRadius:10, padding:'16px 20px', boxShadow:'var(--shadow)', borderTop:`3px solid ${s.color}` }}>
                   <div style={{ fontSize:12, color:'var(--gray3)', marginBottom:6 }}>{s.label}</div>
@@ -2972,74 +2963,62 @@ function PurchaseQueryPage() {
               ))}
             </div>
           )}
-
-          {/* 다운로드 버튼 */}
           <div className="filter-bar" style={{ marginBottom:16 }}>
-            {selected.size > 0 && (
-              <span style={{ fontSize:13, color:'var(--gray3)' }}>{selected.size}건 선택</span>
-            )}
+            {selected.size > 0 && <span style={{ fontSize:13, color:'var(--gray3)' }}>{selected.size}개 선택</span>}
             {selected.size > 0 && (
               <button className="btn btn-sm" style={{ background:'#2563eb', color:'white' }}
                 disabled={downloading} onClick={() => handleDownload(selected)}>
                 {downloading ? <span className="loading-spinner" /> : <><Icon name="download" style={{ width:14,height:14 }} /> 선택 다운로드</>}
               </button>
             )}
-            {summaries.length > 0 && (
+            {rows.length > 0 && (
               <button className="btn btn-sm btn-blue-light" disabled={downloading}
-                onClick={() => handleDownload(new Set(allKeys))}>
+                onClick={() => handleDownload(new Set(rows.map(r => r.id)))}>
                 전체 다운로드
               </button>
             )}
           </div>
-
-          {/* 테이블 */}
           <div className="table-wrap">
-            {summaries.length === 0 ? (
+            {rows.length === 0 ? (
               <div className="empty-state"><Icon name="file" style={{ width:48,height:48 }} /><p>조회 결과가 없습니다.</p></div>
             ) : (
-              <table>
-                <thead>
-                  <tr>
-                    <th style={{ width:40 }}>
-                      <input type="checkbox" checked={selected.size === allKeys.length && allKeys.length > 0} onChange={toggleAll} />
-                    </th>
-                    <th>날짜</th>
-                    <th>판매처</th>
-                    <th style={{ textAlign:'right' }}>상품수</th>
-                    <th style={{ textAlign:'right' }}>공급수량</th>
-                    <th style={{ textAlign:'right' }}>공급금액</th>
-                    <th></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {summaries.map(s => {
-                    const key = `${s.vendor}|${s.date}`;
-                    return (
-                      <tr key={key} style={{ cursor:'pointer' }} onClick={() => toggleSelect(key)}>
+              <div style={{ overflowX:'auto' }}>
+                <table style={{ minWidth:900 }}>
+                  <thead>
+                    <tr>
+                      <th style={{ width:40 }}>
+                        <input type="checkbox" checked={selected.size === rows.length && rows.length > 0} onChange={toggleAll} />
+                      </th>
+                      <th>날짜</th>
+                      <th>판매처</th>
+                      <th>브랜드</th>
+                      <th>상품명</th>
+                      <th style={{ textAlign:'right' }}>공급수량</th>
+                      <th style={{ textAlign:'right' }}>공급금액</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map(r => (
+                      <tr key={r.id} style={{ cursor:'pointer' }} onClick={() => toggleSelect(r.id)}>
                         <td onClick={e => e.stopPropagation()}>
-                          <input type="checkbox" checked={selected.has(key)} onChange={() => toggleSelect(key)} />
+                          <input type="checkbox" checked={selected.has(r.id)} onChange={() => toggleSelect(r.id)} />
                         </td>
-                        <td style={{ fontWeight:600, fontVariantNumeric:'tabular-nums' }}>{s.date}</td>
+                        <td style={{ fontVariantNumeric:'tabular-nums', whiteSpace:'nowrap' }}>{r.date}</td>
                         <td>
-                          <span style={{ display:'inline-flex', alignItems:'center', gap:6 }}>
-                            <span className="vendor-dot" style={{ background:VENDOR_COLORS[s.vendor]||'#94a3b8' }} />
-                            <span style={{ fontWeight:500 }}>{s.vendor}</span>
+                          <span style={{ display:'inline-flex', alignItems:'center', gap:5 }}>
+                            <span className="vendor-dot" style={{ background:VENDOR_COLORS[r.vendor]||'#94a3b8' }} />
+                            {r.vendor}
                           </span>
                         </td>
-                        <td style={{ textAlign:'right', fontSize:13, color:'var(--gray4)' }}>{s.count}개</td>
-                        <td style={{ textAlign:'right', fontWeight:600 }}>{s.qty.toLocaleString()}</td>
-                        <td style={{ textAlign:'right', fontSize:13 }}>{fmt(s.amt)}</td>
-                        <td onClick={e => e.stopPropagation()}>
-                          <button className="btn btn-sm btn-blue-light"
-                            onClick={() => handleDownload(new Set([key]))} disabled={downloading}>
-                            <Icon name="download" style={{ width:14,height:14 }} />
-                          </button>
-                        </td>
+                        <td style={{ fontSize:13 }}>{r.brand}</td>
+                        <td style={{ fontSize:13, maxWidth:220, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{r.product_name}</td>
+                        <td style={{ textAlign:'right', fontWeight:600 }}>{r.quantity.toLocaleString()}</td>
+                        <td style={{ textAlign:'right', fontSize:13 }}>{fmt(r.amount)}</td>
                       </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             )}
           </div>
         </>
@@ -3047,7 +3026,6 @@ function PurchaseQueryPage() {
     </div>
   );
 }
-
 /* ─── ADMIN PAGE ────────────────────────────────────────────────────── */
 function AdminPage() {
   const [tab, setTab]       = useState('pending');
