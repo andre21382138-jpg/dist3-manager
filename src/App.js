@@ -2432,19 +2432,47 @@ function ProductsPage() {
 
 /* ─── SALES QUERY PAGE (매출 데이터 조회) ───────────────────────────── */
 function SalesQueryPage() {
-  const [rows, setRows]           = useState([]);
-  const [loading, setLoading]     = useState(false);
-  const [filterVendor, setFilterVendor]     = useState('');
+  const [rows, setRows]             = useState([]);
+  const [loading, setLoading]       = useState(false);
+  const [searched, setSearched]     = useState(false);
   const [filterDateFrom, setFilterDateFrom] = useState('');
   const [filterDateTo, setFilterDateTo]     = useState('');
-  const [searched, setSearched]   = useState(false);
+  const [selVendors, setSelVendors] = useState(new Set()); // 선택된 판매처
+  const [selBrands, setSelBrands]   = useState(new Set()); // 선택된 브랜드
+  const [brands, setBrands]         = useState([]);        // DB에서 불러온 브랜드 목록
+
+  // 브랜드 목록 로드
+  useEffect(() => {
+    supabase.from('products').select('brand').then(({ data }) => {
+      const list = [...new Set((data||[]).map(p => p.brand).filter(Boolean))].sort();
+      setBrands(list);
+    });
+  }, []);
+
+  function toggleVendor(v) {
+    setSelVendors(prev => { const s = new Set(prev); s.has(v) ? s.delete(v) : s.add(v); return s; });
+  }
+  function toggleBrand(b) {
+    setSelBrands(prev => { const s = new Set(prev); s.has(b) ? s.delete(b) : s.add(b); return s; });
+  }
+  function toggleAllVendors() {
+    setSelVendors(prev => prev.size === VENDORS.length ? new Set() : new Set(VENDORS));
+  }
+  function toggleAllBrands() {
+    setSelBrands(prev => prev.size === brands.length ? new Set() : new Set(brands));
+  }
+  function resetFilters() {
+    setFilterDateFrom(''); setFilterDateTo('');
+    setSelVendors(new Set()); setSelBrands(new Set());
+    setRows([]); setSearched(false);
+  }
 
   async function loadData() {
     setLoading(true); setSearched(true);
     let q = supabase.from('sales_data').select('*');
-    if (filterVendor)   q = q.eq('vendor', filterVendor);
     if (filterDateFrom) q = q.gte('date', filterDateFrom);
     if (filterDateTo)   q = q.lte('date', filterDateTo);
+    if (selVendors.size > 0) q = q.in('vendor', [...selVendors]);
     q = q.order('date', { ascending: false }).order('vendor');
     const { data: salesData } = await q;
 
@@ -2456,32 +2484,32 @@ function SalesQueryPage() {
     const productMap = {};
     (productData || []).forEach(p => { productMap[p.product_code] = p; });
 
-    // 조인
+    // 조인 + 브랜드 필터
     const joined = salesData.map(s => {
       const p = productMap[s.product_code] || {};
       const finalCost   = p.final_cost   || 0;
       const normalPrice = p.normal_price || 0;
       const qty = s.quantity || 0;
       return {
-        date:        s.date,
-        vendor:      s.vendor,
-        brand:       p.brand       || '-',
+        date:         s.date,
+        vendor:       s.vendor,
+        brand:        p.brand        || '-',
         product_name: p.product_name || s.product_code,
         product_code: s.product_code,
         final_cost:   finalCost,
         normal_price: normalPrice,
-        sale_price:   p.sale_price  || null,
+        sale_price:   p.sale_price   || null,
         quantity:     qty,
         total_cost:   finalCost * qty,
         total_sales:  normalPrice * qty,
         margin:       (normalPrice - finalCost) * qty,
       };
-    });
+    }).filter(r => selBrands.size === 0 || selBrands.has(r.brand));
+
     setRows(joined);
     setLoading(false);
   }
 
-  // 합계
   const totals = rows.reduce((acc, r) => ({
     quantity:    acc.quantity    + r.quantity,
     total_cost:  acc.total_cost  + r.total_cost,
@@ -2491,6 +2519,41 @@ function SalesQueryPage() {
 
   function fmt(n) { return n ? Math.round(n).toLocaleString() : '-'; }
 
+  // 체크박스 토글 그룹 컴포넌트
+  function CheckGroup({ label, items, selected, onToggle, onToggleAll, colorMap }) {
+    const allSelected = items.length > 0 && selected.size === items.length;
+    return (
+      <div>
+        <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:8 }}>
+          <label className="form-label" style={{ margin:0 }}>{label}</label>
+          <button className="btn btn-outline btn-sm" style={{ padding:'2px 10px', fontSize:11 }}
+            onClick={onToggleAll}>
+            {allSelected ? '전체 해제' : '전체 선택'}
+          </button>
+          {selected.size > 0 && (
+            <span style={{ fontSize:11, color:'var(--blue)', fontWeight:600 }}>{selected.size}개 선택</span>
+          )}
+        </div>
+        <div style={{ display:'flex', flexWrap:'wrap', gap:6 }}>
+          {items.map(item => (
+            <button key={item}
+              onClick={() => onToggle(item)}
+              style={{
+                padding:'5px 12px', borderRadius:20, fontSize:12, fontWeight:500,
+                border: `1.5px solid ${selected.has(item) ? (colorMap?.[item] || 'var(--blue)') : 'var(--gray2)'}`,
+                background: selected.has(item) ? `${colorMap?.[item] || 'var(--blue)'}15` : 'white',
+                color: selected.has(item) ? (colorMap?.[item] || 'var(--blue)') : 'var(--gray4)',
+                cursor:'pointer', transition:'all .15s',
+              }}>
+              {colorMap && <span style={{ display:'inline-block', width:7, height:7, borderRadius:'50%', background: colorMap[item]||'#94a3b8', marginRight:5, verticalAlign:'middle' }} />}
+              {item}
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div>
       <div className="page-header">
@@ -2498,34 +2561,55 @@ function SalesQueryPage() {
           <span style={{ background:'#f0fdf4', color:'#22c55e', padding:'2px 12px', borderRadius:20, fontSize:14, marginRight:8 }}>매출</span>
           데이터 조회
         </div>
-        <div className="page-sub">날짜 및 판매처 조건으로 매출 데이터를 조회합니다.</div>
+        <div className="page-sub">조회 조건을 설정하고 조회 버튼을 눌러주세요.</div>
       </div>
 
-      {/* 검색 조건 */}
+      {/* 검색 조건 카드 */}
       <div className="card" style={{ marginBottom:20 }}>
-        <div style={{ display:'flex', gap:12, flexWrap:'wrap', alignItems:'flex-end' }}>
-          <div>
-            <label className="form-label">판매처</label>
-            <select className="filter-select" value={filterVendor} onChange={e => setFilterVendor(e.target.value)}>
-              <option value="">전체</option>
-              {VENDORS.map(v => <option key={v}>{v}</option>)}
-            </select>
+        {/* 조회기간 */}
+        <div style={{ marginBottom:20 }}>
+          <label className="form-label">조회기간</label>
+          <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+            <input type="date" className="form-input" style={{ width:160 }} value={filterDateFrom} onChange={e => setFilterDateFrom(e.target.value)} />
+            <span style={{ color:'var(--gray3)' }}>~</span>
+            <input type="date" className="form-input" style={{ width:160 }} value={filterDateTo} onChange={e => setFilterDateTo(e.target.value)} />
           </div>
-          <div>
-            <label className="form-label">시작일</label>
-            <input type="date" className="filter-select" value={filterDateFrom} onChange={e => setFilterDateFrom(e.target.value)} />
-          </div>
-          <div>
-            <label className="form-label">종료일</label>
-            <input type="date" className="filter-select" value={filterDateTo} onChange={e => setFilterDateTo(e.target.value)} />
-          </div>
-          <button className="btn btn-sm" style={{ background:'var(--blue)', color:'white', minWidth:80 }}
+        </div>
+
+        <div className="divider" />
+
+        {/* 판매처 */}
+        <div style={{ marginBottom:20 }}>
+          <CheckGroup
+            label="판매처"
+            items={VENDORS}
+            selected={selVendors}
+            onToggle={toggleVendor}
+            onToggleAll={toggleAllVendors}
+            colorMap={VENDOR_COLORS}
+          />
+        </div>
+
+        <div className="divider" />
+
+        {/* 브랜드 */}
+        <div style={{ marginBottom:20 }}>
+          <CheckGroup
+            label="브랜드"
+            items={brands}
+            selected={selBrands}
+            onToggle={toggleBrand}
+            onToggleAll={toggleAllBrands}
+          />
+        </div>
+
+        {/* 버튼 */}
+        <div style={{ display:'flex', gap:10 }}>
+          <button className="btn btn-sm" style={{ background:'var(--blue)', color:'white', minWidth:100 }}
             disabled={loading} onClick={loadData}>
-            {loading ? <span className="loading-spinner" /> : '조회'}
+            {loading ? <span className="loading-spinner" /> : '🔍 조회'}
           </button>
-          {(filterVendor||filterDateFrom||filterDateTo) && (
-            <button className="btn btn-sm btn-outline" onClick={() => { setFilterVendor(''); setFilterDateFrom(''); setFilterDateTo(''); }}>초기화</button>
-          )}
+          <button className="btn btn-sm btn-outline" onClick={resetFilters}>초기화</button>
         </div>
       </div>
 
@@ -2533,11 +2617,10 @@ function SalesQueryPage() {
       {!searched ? (
         <div className="empty-state" style={{ background:'white', borderRadius:10, padding:64 }}>
           <Icon name="chart" style={{ width:48,height:48 }} />
-          <p>조건을 선택하고 조회 버튼을 눌러주세요.</p>
+          <p>조건을 설정하고 조회 버튼을 눌러주세요.</p>
         </div>
       ) : (
         <>
-          {/* 요약 카드 */}
           {rows.length > 0 && (
             <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:12, marginBottom:20 }}>
               {[
@@ -2548,7 +2631,7 @@ function SalesQueryPage() {
               ].map(s => (
                 <div key={s.label} style={{ background:'white', borderRadius:10, padding:'16px 20px', boxShadow:'var(--shadow)', borderTop:`3px solid ${s.color}` }}>
                   <div style={{ fontSize:12, color:'var(--gray3)', marginBottom:6 }}>{s.label}</div>
-                  <div style={{ fontSize:16, fontWeight:700, color: s.color }}>{s.value}</div>
+                  <div style={{ fontSize:16, fontWeight:700, color:s.color }}>{s.value}</div>
                 </div>
               ))}
             </div>
@@ -2581,7 +2664,7 @@ function SalesQueryPage() {
                         <td style={{ fontVariantNumeric:'tabular-nums', whiteSpace:'nowrap' }}>{r.date}</td>
                         <td>
                           <span style={{ display:'inline-flex', alignItems:'center', gap:5 }}>
-                            <span className="vendor-dot" style={{ background: VENDOR_COLORS[r.vendor]||'#94a3b8' }} />
+                            <span className="vendor-dot" style={{ background:VENDOR_COLORS[r.vendor]||'#94a3b8' }} />
                             {r.vendor}
                           </span>
                         </td>
@@ -2593,7 +2676,7 @@ function SalesQueryPage() {
                         <td style={{ textAlign:'right', fontWeight:600 }}>{r.quantity.toLocaleString()}</td>
                         <td style={{ textAlign:'right', fontSize:13 }}>{fmt(r.total_cost)}</td>
                         <td style={{ textAlign:'right', fontSize:13, fontWeight:600 }}>{fmt(r.total_sales)}</td>
-                        <td style={{ textAlign:'right', fontSize:13, color: r.margin >= 0 ? '#22c55e' : '#ef4444', fontWeight:600 }}>{fmt(r.margin)}</td>
+                        <td style={{ textAlign:'right', fontSize:13, color:r.margin>=0?'#22c55e':'#ef4444', fontWeight:600 }}>{fmt(r.margin)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -2603,7 +2686,7 @@ function SalesQueryPage() {
                       <td style={{ textAlign:'right' }}>{totals.quantity.toLocaleString()}</td>
                       <td style={{ textAlign:'right' }}>{fmt(totals.total_cost)}</td>
                       <td style={{ textAlign:'right' }}>{fmt(totals.total_sales)}</td>
-                      <td style={{ textAlign:'right', color: totals.margin >= 0 ? '#22c55e' : '#ef4444' }}>{fmt(totals.margin)}</td>
+                      <td style={{ textAlign:'right', color:totals.margin>=0?'#22c55e':'#ef4444' }}>{fmt(totals.margin)}</td>
                     </tr>
                   </tfoot>
                 </table>
