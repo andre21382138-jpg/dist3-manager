@@ -1991,44 +1991,59 @@ function PurchaseDataView({ refreshKey }) {
     if (filterVendor)   q = q.eq('vendor', filterVendor);
     if (filterDateFrom) q = q.gte('date', filterDateFrom);
     if (filterDateTo)   q = q.lte('date', filterDateTo);
-    const { data } = await q;
-    setRows(data || []);
+    const { data: purchaseData } = await q;
+    if (!purchaseData?.length) { setRows([]); setLoading(false); return; }
+
+    // 상품 정보 조인
+    const codes = [...new Set(purchaseData.map(r => r.product_code))];
+    const { data: productData } = await supabase.from('products').select('product_code, product_name, brand').in('product_code', codes);
+    const productMap = {};
+    (productData || []).forEach(p => { productMap[p.product_code] = p; });
+
+    const joined = purchaseData.map(r => ({
+      ...r,
+      brand:        productMap[r.product_code]?.brand        || '-',
+      product_name: productMap[r.product_code]?.product_name || r.product_code,
+    }));
+    setRows(joined);
     setLoading(false);
   }
 
-  // 날짜/판매처별 요약
+  // 날짜/판매처별 요약 (다운로드용)
   const summaryMap = {};
   rows.forEach(r => {
     const key = `${r.vendor}|${r.date}`;
-    if (!summaryMap[key]) summaryMap[key] = { vendor: r.vendor, date: r.date, count: 0, qty: 0, amt: 0 };
-    summaryMap[key].count++;
-    summaryMap[key].qty += r.quantity || 0;
-    summaryMap[key].amt += r.amount   || 0;
+    if (!summaryMap[key]) summaryMap[key] = { vendor: r.vendor, date: r.date };
   });
-  const summaries = Object.values(summaryMap).sort((a,b) => b.date.localeCompare(a.date) || a.vendor.localeCompare(b.vendor));
-  const allKeys   = summaries.map(s => `${s.vendor}|${s.date}`);
+  const allKeys = Object.keys(summaryMap);
 
-  function toggleSelect(key) {
-    setSelected(prev => { const s = new Set(prev); s.has(key) ? s.delete(key) : s.add(key); return s; });
+  // 선택된 행의 날짜/판매처 키
+  const selectedKeys = new Set(
+    [...selected].map(id => {
+      const r = rows.find(row => row.id === id);
+      return r ? `${r.vendor}|${r.date}` : null;
+    }).filter(Boolean)
+  );
+
+  function toggleSelect(id) {
+    setSelected(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
   }
   function toggleAll() {
-    setSelected(prev => prev.size === allKeys.length ? new Set() : new Set(allKeys));
+    setSelected(prev => prev.size === rows.length ? new Set() : new Set(rows.map(r => r.id)));
   }
 
-  async function handleDownload(keys) {
-    if (!keys.size) return;
+  async function handleDownload(ids) {
+    if (!ids.size) return;
     setDownloading(true);
     try {
-      const conditions = Array.from(keys).map(k => { const [vendor, date] = k.split('|'); return { vendor, date }; });
-      let allRows = [];
-      for (const { vendor, date } of conditions) {
-        const { data } = await supabase.from('purchase_data').select('*').eq('vendor', vendor).eq('date', date);
-        allRows = allRows.concat(data || []);
-      }
-      const label     = conditions.length === 1 ? conditions[0].vendor : '통합';
-      const dateLabel = conditions.length === 1 ? conditions[0].date : new Date().toISOString().split('T')[0];
+      const targets = rows.filter(r => ids.has(r.id));
+      // 날짜/판매처 라벨
+      const vendors = [...new Set(targets.map(r => r.vendor))];
+      const dates   = [...new Set(targets.map(r => r.date))];
+      const label     = vendors.length === 1 ? vendors[0] : '통합';
+      const dateLabel = dates.length === 1   ? dates[0]   : new Date().toISOString().split('T')[0];
       await downloadPurchaseFormat(
-        allRows.map(r => ({
+        targets.map(r => ({
           업체명: r.vendor, 연도: r.year, 월: r.month, 일: r.day,
           일자: r.date, 상품코드: r.product_code,
           공급수량: r.quantity, 총액: r.amount || 0,
@@ -2040,10 +2055,14 @@ function PurchaseDataView({ refreshKey }) {
   }
 
   const fmt = n => n ? Math.round(n).toLocaleString() : '-';
+  const totals = rows.reduce((acc, r) => ({
+    qty: acc.qty + (r.quantity || 0),
+    amt: acc.amt + (r.amount   || 0),
+  }), { qty: 0, amt: 0 });
 
-  // 판매처별 요약 카드
+  // 판매처별 카드
   const vendorCounts = VENDORS.map(v => ({
-    vendor: v, count: summaries.filter(s => s.vendor === v).length,
+    vendor: v, count: rows.filter(r => r.vendor === v).length,
   })).filter(v => v.count > 0);
 
   return (
@@ -2058,13 +2077,13 @@ function PurchaseDataView({ refreshKey }) {
               onMouseLeave={e=>e.currentTarget.style.transform=''}>
               <span className="vendor-dot" style={{ background:VENDOR_COLORS[vendor], width:10, height:10 }} />
               <span style={{ fontSize:13, fontWeight:600, color:'var(--navy)' }}>{vendor}</span>
-              <span style={{ background:`${VENDOR_COLORS[vendor]}20`, color:VENDOR_COLORS[vendor], fontSize:12, fontWeight:700, padding:'1px 8px', borderRadius:10 }}>{count}일치</span>
+              <span style={{ background:`${VENDOR_COLORS[vendor]}20`, color:VENDOR_COLORS[vendor], fontSize:12, fontWeight:700, padding:'1px 8px', borderRadius:10 }}>{count}건</span>
             </div>
           ))}
         </div>
       )}
 
-      {/* 필터 + 다운로드 버튼 */}
+      {/* 필터 + 버튼 */}
       <div className="filter-bar">
         <select className="filter-select" value={filterVendor} onChange={e => setFilterVendor(e.target.value)}>
           <option value="">전체 판매처</option>
@@ -2079,78 +2098,87 @@ function PurchaseDataView({ refreshKey }) {
           <button className="btn btn-outline btn-sm" onClick={() => { setFilterVendor(''); setFilterDateFrom(''); setFilterDateTo(''); }}>필터 초기화</button>
         )}
         <div style={{ marginLeft:'auto', display:'flex', gap:8, alignItems:'center' }}>
-          {selected.size > 0 && <span style={{ fontSize:13, color:'var(--gray3)' }}>{selected.size}건 선택</span>}
+          {selected.size > 0 && <span style={{ fontSize:13, color:'var(--gray3)' }}>{selected.size}개 선택</span>}
           {selected.size > 0 && (
             <button className="btn btn-sm" style={{ background:'#2563eb', color:'white' }}
               disabled={downloading} onClick={() => handleDownload(selected)}>
               {downloading ? <span className="loading-spinner" /> : <><Icon name="download" style={{ width:14,height:14 }} /> 선택 다운로드</>}
             </button>
           )}
-          {summaries.length > 0 && (
+          {rows.length > 0 && (
             <button className="btn btn-sm btn-blue-light" disabled={downloading}
-              onClick={() => handleDownload(new Set(allKeys))}>
+              onClick={() => handleDownload(new Set(rows.map(r => r.id)))}>
               전체 다운로드
             </button>
           )}
         </div>
       </div>
 
+      {/* 요약 */}
+      {rows.length > 0 && (
+        <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:12, marginBottom:16 }}>
+          {[
+            { label:'총 공급수량', value: totals.qty.toLocaleString() + ' EA', color:'#2563eb' },
+            { label:'총 공급금액', value: fmt(totals.amt) + ' 원', color:'#ef4444' },
+            { label:'조회 건수', value: rows.length.toLocaleString() + ' 건', color:'#a855f7' },
+          ].map(s => (
+            <div key={s.label} style={{ background:'white', borderRadius:10, padding:'14px 18px', boxShadow:'var(--shadow)', borderTop:`3px solid ${s.color}` }}>
+              <div style={{ fontSize:12, color:'var(--gray3)', marginBottom:4 }}>{s.label}</div>
+              <div style={{ fontSize:15, fontWeight:700, color:s.color }}>{s.value}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* 테이블 */}
       <div className="table-wrap">
         {loading ? (
           <div style={{ textAlign:'center', padding:48, color:'var(--gray3)' }}>불러오는 중...</div>
-        ) : summaries.length === 0 ? (
+        ) : rows.length === 0 ? (
           <div className="empty-state"><Icon name="file" style={{ width:48,height:48 }} /><p>업로드된 데이터가 없습니다.</p></div>
         ) : (
-          <table>
-            <thead>
-              <tr>
-                <th style={{ width:40 }}>
-                  <input type="checkbox" checked={selected.size === allKeys.length && allKeys.length > 0} onChange={toggleAll} />
-                </th>
-                <th>날짜</th>
-                <th>판매처</th>
-                <th style={{ textAlign:'right' }}>상품수</th>
-                <th style={{ textAlign:'right' }}>공급수량</th>
-                <th style={{ textAlign:'right' }}>공급금액</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {summaries.map(s => {
-                const key = `${s.vendor}|${s.date}`;
-                return (
-                  <tr key={key} style={{ cursor:'pointer' }} onClick={() => toggleSelect(key)}>
+          <div style={{ overflowX:'auto' }}>
+            <table style={{ minWidth:900 }}>
+              <thead>
+                <tr>
+                  <th style={{ width:40 }}>
+                    <input type="checkbox" checked={selected.size === rows.length && rows.length > 0} onChange={toggleAll} />
+                  </th>
+                  <th>날짜</th>
+                  <th>판매처</th>
+                  <th>브랜드</th>
+                  <th>상품명</th>
+                  <th style={{ textAlign:'right' }}>공급수량</th>
+                  <th style={{ textAlign:'right' }}>공급금액</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map(r => (
+                  <tr key={r.id} style={{ cursor:'pointer' }} onClick={() => toggleSelect(r.id)}>
                     <td onClick={e => e.stopPropagation()}>
-                      <input type="checkbox" checked={selected.has(key)} onChange={() => toggleSelect(key)} />
+                      <input type="checkbox" checked={selected.has(r.id)} onChange={() => toggleSelect(r.id)} />
                     </td>
-                    <td style={{ fontWeight:600, fontVariantNumeric:'tabular-nums' }}>{s.date}</td>
+                    <td style={{ fontVariantNumeric:'tabular-nums', whiteSpace:'nowrap' }}>{r.date}</td>
                     <td>
-                      <span style={{ display:'inline-flex', alignItems:'center', gap:6 }}>
-                        <span className="vendor-dot" style={{ background:VENDOR_COLORS[s.vendor]||'#94a3b8' }} />
-                        <span style={{ fontWeight:500 }}>{s.vendor}</span>
+                      <span style={{ display:'inline-flex', alignItems:'center', gap:5 }}>
+                        <span className="vendor-dot" style={{ background:VENDOR_COLORS[r.vendor]||'#94a3b8' }} />
+                        {r.vendor}
                       </span>
                     </td>
-                    <td style={{ textAlign:'right', fontSize:13, color:'var(--gray4)' }}>{s.count}개</td>
-                    <td style={{ textAlign:'right', fontWeight:600 }}>{s.qty.toLocaleString()}</td>
-                    <td style={{ textAlign:'right', fontSize:13 }}>{fmt(s.amt)}</td>
-                    <td onClick={e => e.stopPropagation()}>
-                      <button className="btn btn-sm btn-blue-light"
-                        onClick={() => handleDownload(new Set([key]))} disabled={downloading}>
-                        <Icon name="download" style={{ width:14,height:14 }} />
-                      </button>
-                    </td>
+                    <td style={{ fontSize:13 }}>{r.brand}</td>
+                    <td style={{ fontSize:13, maxWidth:220, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{r.product_name}</td>
+                    <td style={{ textAlign:'right', fontWeight:600 }}>{r.quantity.toLocaleString()}</td>
+                    <td style={{ textAlign:'right', fontSize:13 }}>{fmt(r.amount)}</td>
                   </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
     </div>
   );
 }
-
 /* ─── UPLOAD PAGE ──────────────────────────────────────────────────── */
 function UploadPage({ type, profile }) {
   const [tab, setTab]           = useState('upload');
