@@ -2316,19 +2316,19 @@ function ProductsPage() {
       const upsertRows = [];
       for (let i = 2; i < rows.length; i++) {
         const r = rows[i];
-        const code = String(r[3] || '').trim();
+        const code = String(r[2] || '').trim(); // 상품코드
         if (!code || !code.startsWith('88')) continue;
         upsertRows.push({
           product_code: code,
-          product_name: r[5]  || null,
-          brand:        r[6]  || null,
-          category_1:   r[7]  || null,
-          category_2:   r[8]  || null,
-          category_3:   r[9]  || null,
-          final_cost:   Number(r[20]) || null,
-          normal_price: Number(r[24]) || null,
-          sale_price:   Number(r[25]) || null,
-          is_active:    String(r[2] || '').trim() === 'O',
+          product_name: r[4]  || null,  // 상품명
+          brand:        r[5]  || null,  // 브랜드
+          category_1:   r[6]  || null,  // 분류_1
+          category_2:   r[7]  || null,  // 분류_2
+          category_3:   r[8]  || null,  // 분류_3
+          final_cost:   Number(r[19]) || null, // 최종원가
+          normal_price: Number(r[23]) || null, // 마트 정상판매가
+          sale_price:   Number(r[24]) || null, // 마트 행사판매가
+          is_active:    String(r[1] || '').trim() === 'O', // 운영여부
           updated_at:   new Date().toISOString(),
         });
       }
