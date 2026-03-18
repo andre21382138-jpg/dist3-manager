@@ -1206,16 +1206,16 @@ function VendorSummaryCard({ type, metric, color, bgColor }) {
       const map = {};
 
       if (type === '매입' && metric === '건수') {
-        // 업로드 건수
-        const { data: rows } = await supabase.from('uploads')
-          .select('vendor').eq('type', '매입').gte('date', from).lte('date', to);
-        (rows || []).forEach(r => { map[r.vendor] = (map[r.vendor] || 0) + 1; });
+        // purchase_data 공급수량 합계
+        const { data: rows } = await supabase.from('purchase_data')
+          .select('vendor, quantity').gte('date', from).lte('date', to);
+        (rows || []).forEach(r => { map[r.vendor] = (map[r.vendor] || 0) + (r.quantity || 0); });
 
       } else if (type === '매입' && metric === '공급가') {
-        // 매입 공급가 - 아직 파싱 데이터 없음, 업로드 건수로 대체
-        const { data: rows } = await supabase.from('uploads')
-          .select('vendor').eq('type', '매입').gte('date', from).lte('date', to);
-        (rows || []).forEach(r => { map[r.vendor] = (map[r.vendor] || 0) + 1; });
+        // purchase_data 금액 합계
+        const { data: rows } = await supabase.from('purchase_data')
+          .select('vendor, amount').gte('date', from).lte('date', to);
+        (rows || []).forEach(r => { map[r.vendor] = (map[r.vendor] || 0) + (r.amount || 0); });
 
       } else if (type === '매출' && metric === '건수') {
         // 매출 판매수량 합계
@@ -1252,7 +1252,7 @@ function VendorSummaryCard({ type, metric, color, bgColor }) {
   const metricLabel = metric === '건수' ? (type === '매입' ? '공급수량 기준' : '판매수량 합계') :
                       metric === '공급가' ? '공급가 기준' : '매출액 기준';
   const fmtTotal = v => isMoney ? Math.round(v/10000).toLocaleString()+'만원' :
-                        (type === '매출' ? v.toLocaleString()+' EA' : v.toLocaleString()+'건');
+                        v.toLocaleString()+' EA';
   return (
     <div style={{ background:'white', borderRadius:12, padding:22, boxShadow:'var(--shadow)', flex:1 }}>
       {/* 헤더 */}
@@ -1406,79 +1406,138 @@ function DuplicateModal({ existing, newFile, onReplace, onAdd, onCancel }) {
 }
 
 /* ─── 판매처 파일 자동 감지 및 파싱 ─────────────────────────────────── */
-async function detectAndParseFile(file) {
+/* ─── 판매처 감지 헬퍼 ──────────────────────────────────────────────── */
+function detectVendorFromText(text) {
+  if (text.includes('씨에스유통') || text.includes('CS유통')) return '롯데슈퍼';
+  if (text.includes('롯데마트'))  return '롯데마트';
+  if (text.includes('롯데슈퍼'))  return '롯데슈퍼';
+  if (text.includes('Hyper'))    return '홈플러스';
+  if (text.includes('Express'))  return '익스프레스';
+  return null;
+}
+
+async function detectAndParseFile(file, dataType = '매출') {
   const arrayBuffer = await file.arrayBuffer();
   const uint8 = new Uint8Array(arrayBuffer.slice(0, 4));
-  const isPK = uint8[0] === 0x50 && uint8[1] === 0x4B; // ZIP = xlsx
+  const isPK = uint8[0] === 0x50 && uint8[1] === 0x4B;
 
-  const results = []; // [{vendor, date, items:[{code,qty}]}]
+  const results = [];
 
-  // 날짜 추출 헬퍼
   function extractDate(text) {
     const m = text.match(/(\d{4}-\d{2}-\d{2})/);
     return m ? m[1] : null;
   }
 
-  // HTML 문자열에서 테이블 파싱 (DOMParser 사용)
   function parseHtmlTables(htmlStr) {
     const parser = new DOMParser();
     const doc = parser.parseFromString(htmlStr, 'text/html');
     const tables = doc.querySelectorAll('table');
-    return Array.from(tables).map(table => {
-      const rows = Array.from(table.querySelectorAll('tr'));
-      return rows.map(tr =>
+    return Array.from(tables).map(table =>
+      Array.from(table.querySelectorAll('tr')).map(tr =>
         Array.from(tr.querySelectorAll('td,th')).map(td => td.textContent.trim())
-      );
-    });
+      )
+    );
   }
 
   try {
     if (isPK) {
-      // xlsx 형식: 이마트/에브리데이 통합 or 메가마트
       const wb = XLSX.read(arrayBuffer, { type: 'array' });
       const ws = wb.Sheets[wb.SheetNames[0]];
       const rows = XLSX.utils.sheet_to_json(ws, { header: 1 });
       const firstCell = String(rows[0]?.[0] || '').trim();
 
-      if (firstCell === '조회일자') {
-        // 이마트 / 에브리데이 통합 파일
-        const rawDate = String(rows[1]?.[0] || '');
-        const date = rawDate.length === 8
-          ? `${rawDate.slice(0,4)}-${rawDate.slice(4,6)}-${rawDate.slice(6,8)}`
-          : null;
-        const emMap = {}, edMap = {};
-        for (let i = 1; i < rows.length; i++) {
-          const r = rows[i];
-          const code = String(r[5] || '').trim();
-          if (!code.startsWith('88')) continue;
-          const store = String(r[4] || '');
-          const qty = Number(r[7]) || 0;
-          if (store.startsWith('EM')) emMap[code] = (emMap[code]||0) + qty;
-          else if (store.startsWith('ED')) edMap[code] = (edMap[code]||0) + qty;
+      if (dataType === '매출') {
+        if (firstCell === '조회일자') {
+          // 이마트/에브리데이 매출
+          const rawDate = String(rows[1]?.[0] || '');
+          const date = rawDate.length === 8
+            ? `${rawDate.slice(0,4)}-${rawDate.slice(4,6)}-${rawDate.slice(6,8)}` : null;
+          const emMap = {}, edMap = {};
+          for (let i = 1; i < rows.length; i++) {
+            const r = rows[i];
+            const code = String(r[5] || '').trim();
+            if (!code.startsWith('88')) continue;
+            const store = String(r[4] || '');
+            const qty = Number(r[7]) || 0;
+            if (store.startsWith('EM')) emMap[code] = (emMap[code]||0) + qty;
+            else if (store.startsWith('ED')) edMap[code] = (edMap[code]||0) + qty;
+          }
+          if (Object.keys(emMap).length > 0)
+            results.push({ vendor: '이마트', date, items: Object.entries(emMap).map(([code,qty])=>({code,qty,amt:0})) });
+          if (Object.keys(edMap).length > 0)
+            results.push({ vendor: '에브리데이', date, items: Object.entries(edMap).map(([code,qty])=>({code,qty,amt:0})) });
+        } else {
+          // 메가마트 매출
+          const codeMap = {};
+          for (let i = 1; i < rows.length; i++) {
+            const r = rows[i];
+            if (!r[2] || String(r[1]||'').includes('합계') || String(r[0]||'') === '합계') continue;
+            const code = String(r[2]).trim();
+            if (!code.startsWith('88')) continue;
+            codeMap[code] = (codeMap[code]||0) + (Number(r[5])||0);
+          }
+          if (Object.keys(codeMap).length > 0)
+            results.push({ vendor: '메가마트', date: null, items: Object.entries(codeMap).map(([code,qty])=>({code,qty,amt:0})) });
         }
-        if (Object.keys(emMap).length > 0)
-          results.push({ vendor: '이마트', date, items: Object.entries(emMap).map(([code,qty])=>({code,qty})) });
-        if (Object.keys(edMap).length > 0)
-          results.push({ vendor: '에브리데이', date, items: Object.entries(edMap).map(([code,qty])=>({code,qty})) });
 
       } else {
-        // 메가마트
-        const codeMap = {};
-        for (let i = 1; i < rows.length; i++) {
-          const r = rows[i];
-          if (!r[2] || String(r[1]||'').includes('합계') || String(r[0]||'') === '합계') continue;
-          const code = String(r[2]).trim();
-          if (!code.startsWith('88')) continue;
-          codeMap[code] = (codeMap[code]||0) + (Number(r[5])||0);
+        // 매입
+        if (firstCell === '점포코드') {
+          // 이마트/에브리데이 매입 (엑셀저장 시트)
+          const emMap = {}, edMap = {};
+          const emAmt = {}, edAmt = {};
+          for (let i = 1; i < rows.length; i++) {
+            const r = rows[i];
+            const code = String(r[6] || '').trim();
+            if (!code.startsWith('88')) continue;
+            const bizType = String(r[2] || ''); // 업태명
+            const qty = Number(r[13]) || 0;     // 납품량
+            const amt = Number(r[15]) || 0;     // 납품금액
+            if (bizType.includes('이마트')) {
+              emMap[code] = (emMap[code]||0) + qty;
+              emAmt[code] = (emAmt[code]||0) + amt;
+            } else if (bizType.includes('에브리데이')) {
+              edMap[code] = (edMap[code]||0) + qty;
+              edAmt[code] = (edAmt[code]||0) + amt;
+            }
+          }
+          // 날짜: 첫 데이터행 납품일자
+          const rawDate = String(rows[1]?.[8] || '');
+          const date = rawDate.length === 8
+            ? `${rawDate.slice(0,4)}-${rawDate.slice(4,6)}-${rawDate.slice(6,8)}` : null;
+          if (Object.keys(emMap).length > 0)
+            results.push({ vendor: '이마트', date, items: Object.entries(emMap).map(([code,qty])=>({code,qty,amt:emAmt[code]||0})) });
+          if (Object.keys(edMap).length > 0)
+            results.push({ vendor: '에브리데이', date, items: Object.entries(edMap).map(([code,qty])=>({code,qty,amt:edAmt[code]||0})) });
+
+        } else {
+          // 메가마트 매입
+          const codeMap = {}, amtMap = {};
+          let date = null;
+          for (let i = 1; i < rows.length; i++) {
+            const r = rows[i];
+            if (!r[2] || String(r[1]||'').includes('합계') || String(r[0]||'') === '합계') continue;
+            const code = String(r[2]).trim();
+            if (!code.startsWith('88')) continue;
+            const qty = Number(r[7]) || 0;
+            const amt = Number(r[9]) || 0;
+            // 전표번호 앞 8자리에서 날짜 추출
+            if (!date) {
+              const rawDate = String(r[3] || '').substring(0, 8);
+              if (rawDate.length === 8)
+                date = `${rawDate.slice(0,4)}-${rawDate.slice(4,6)}-${rawDate.slice(6,8)}`;
+            }
+            codeMap[code] = (codeMap[code]||0) + qty;
+            amtMap[code]  = (amtMap[code]||0)  + amt;
+          }
+          if (Object.keys(codeMap).length > 0)
+            results.push({ vendor: '메가마트', date, items: Object.entries(codeMap).map(([code,qty])=>({code,qty,amt:amtMap[code]||0})) });
         }
-        if (Object.keys(codeMap).length > 0)
-          results.push({ vendor: '메가마트', date: null, items: Object.entries(codeMap).map(([code,qty])=>({code,qty})) });
       }
 
     } else {
-      // HTML xls 형식 - 인코딩 감지 후 텍스트로 읽기
+      // HTML xls
       let htmlStr;
-      // charset 확인
       const utf8Peek = new TextDecoder('utf-8').decode(arrayBuffer.slice(0, 500));
       if (utf8Peek.toLowerCase().includes('utf-8')) {
         htmlStr = new TextDecoder('utf-8').decode(arrayBuffer);
@@ -1486,37 +1545,54 @@ async function detectAndParseFile(file) {
         htmlStr = new TextDecoder('euc-kr').decode(arrayBuffer);
       }
 
-      // 판매처 감지
-      let vendor = null;
-      if (htmlStr.includes('롯데마트')) vendor = '롯데마트';
-      else if (htmlStr.includes('롯데슈퍼')) vendor = '롯데슈퍼';
-      else if (htmlStr.includes('Hyper')) vendor = '홈플러스';
-      else if (htmlStr.includes('Express')) vendor = '익스프레스';
-
-      // 날짜 감지
-      const date = extractDate(htmlStr);
-
-      // DOMParser로 테이블 파싱
+      const vendor = detectVendorFromText(htmlStr);
+      const date   = extractDate(htmlStr);
       const tables = parseHtmlTables(htmlStr);
-      const items = [];
+      const items  = [];
 
-      if (vendor === '롯데마트' || vendor === '롯데슈퍼') {
-        // 두 번째 테이블, 첫 행은 헤더
-        const dataTable = tables.length > 1 ? tables[1] : tables[0];
-        for (let i = 1; i < dataTable.length; i++) {
-          const r = dataTable[i];
-          // col[0]=상품코드(내부), col[1]=판매코드(바코드88시작), col[4]=판매수량
-          const code = String(r[1] || '').trim();
-          if (!code.startsWith('88')) continue;
-          items.push({ code, qty: Number(String(r[4]||'').replace(/,/g,'')) || 0 });
+      if (dataType === '매출') {
+        if (vendor === '롯데마트' || vendor === '롯데슈퍼') {
+          const dataTable = tables.length > 1 ? tables[1] : tables[0];
+          for (let i = 1; i < dataTable.length; i++) {
+            const r = dataTable[i];
+            const code = String(r[1] || '').trim();
+            if (!code.startsWith('88')) continue;
+            items.push({ code, qty: Number(String(r[4]||'').replace(/,/g,''))||0, amt: 0 });
+          }
+        } else if (vendor === '홈플러스' || vendor === '익스프레스') {
+          const dataTable = tables.length > 1 ? tables[1] : tables[0];
+          for (let i = 1; i < dataTable.length; i++) {
+            const r = dataTable[i];
+            const code = String(r[1] || '').trim();
+            if (!code.match(/^\d{10,14}$/) || !code.startsWith('88')) continue;
+            items.push({ code, qty: Number(String(r[4]||'').replace(/,/g,''))||0, amt: 0 });
+          }
         }
-      } else if (vendor === '홈플러스' || vendor === '익스프레스') {
-        const dataTable = tables.length > 1 ? tables[1] : tables[0];
-        for (let i = 1; i < dataTable.length; i++) {
-          const r = dataTable[i];
-          const code = String(r[1] || '').trim();
-          if (!code.match(/^\d{10,14}$/) || !code.startsWith('88')) continue;
-          items.push({ code, qty: Number(String(r[4]||'').replace(/,/g,'')) || 0 });
+      } else {
+        // 매입
+        if (vendor === '롯데마트' || vendor === '롯데슈퍼') {
+          // col: 매입일[0] 상품코드[1] 판매코드[2] 상품명[3] 규격[4] 매입구분[5] 주문수량[6] 주문금액[7] 박스[8] 낱개[9] 금액[10]
+          const dataTable = tables.length > 1 ? tables[1] : tables[0];
+          for (let i = 1; i < dataTable.length; i++) {
+            const r = dataTable[i];
+            const code = String(r[2] || '').trim(); // 판매코드(바코드)
+            if (!code.startsWith('88')) continue;
+            const qty = Number(String(r[9]||'').replace(/,/g,'')) || 0; // 낱개수량
+            const amt = Number(String(r[10]||'').replace(/,/g,'')) || 0;
+            // 날짜: 첫 행의 매입일
+            items.push({ code, qty, amt });
+          }
+        } else if (vendor === '홈플러스' || vendor === '익스프레스') {
+          // col: 상품코드[0] TPNB[1] 상품명[2] 매입구분[3] 점포구분[4] 점포코드[5] 점포명[6] 수량[7] 금액[8]
+          const dataTable = tables.length > 1 ? tables[1] : tables[0];
+          for (let i = 1; i < dataTable.length; i++) {
+            const r = dataTable[i];
+            const code = String(r[0] || '').trim();
+            if (!code.match(/^\d{10,14}$/) || !code.startsWith('88')) continue;
+            const qty = Number(String(r[7]||'').replace(/,/g,'')) || 0;
+            const amt = Number(String(r[8]||'').replace(/,/g,'')) || 0;
+            items.push({ code, qty, amt });
+          }
         }
       }
 
@@ -1729,14 +1805,177 @@ function UploadForm({ type, profile, color, bgColor, onUploaded }) {
 }
 
 /* ─── BULK UPLOAD FORM (매출 전용) ──────────────────────────────────── */
-function BulkUploadForm({ profile, onUploaded }) {
-  const [files, setFiles]       = useState([]);
-  const [detected, setDetected] = useState([]); // [{file, vendor, date, items, needsDate, error}]
+function BulkUploadForm({ type, profile, onUploaded }) {
+  const isSales = type === '매출';
+  const color   = isSales ? '#22c55e' : '#2563eb';
+
+  const [files, setFiles]         = useState([]);
+  const [detected, setDetected]   = useState([]);
   const [detecting, setDetecting] = useState(false);
   const [uploading, setUploading] = useState(false);
-  const [msg, setMsg]           = useState(null);
-  const [dragging, setDragging] = useState(false);
+  const [msg, setMsg]             = useState(null);
+  const [dragging, setDragging]   = useState(false);
   const fileRef = useRef();
+
+  async function handleFiles(fileList) {
+    const arr = Array.from(fileList).filter(f => f.name.match(/\.(xlsx|xls)$/i));
+    if (!arr.length) return;
+    setFiles(arr); setDetecting(true); setMsg(null); setDetected([]);
+    const results = [];
+    for (const file of arr) {
+      try {
+        const parsed = await detectAndParseFile(file, type);
+        for (const p of parsed) {
+          results.push({ file, vendor: p.vendor || '감지 실패', date: p.date || '', items: p.items, needsDate: !p.date, error: null });
+        }
+        if (parsed.length === 0) results.push({ file, vendor: '감지 실패', date: '', items: [], needsDate: false, error: '판매처를 인식할 수 없습니다.' });
+      } catch (e) {
+        results.push({ file, vendor: '감지 실패', date: '', items: [], needsDate: false, error: e.message });
+      }
+    }
+    setDetected(results); setDetecting(false);
+  }
+
+  function updateDate(idx, date) { setDetected(prev => prev.map((d,i) => i===idx ? {...d, date} : d)); }
+  function updateVendor(idx, vendor) { setDetected(prev => prev.map((d,i) => i===idx ? {...d, vendor} : d)); }
+
+  async function handleUpload() {
+    const valid = detected.filter(d => d.vendor !== '감지 실패' && d.date && d.items.length > 0);
+    if (!valid.length) return;
+    setUploading(true); setMsg(null);
+    let success = 0, fail = 0;
+
+    for (const d of valid) {
+      try {
+        const ts = Date.now();
+        const safeName   = d.file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+        const safeVendor = d.vendor.replace(/[^a-zA-Z0-9._-]/g, '_');
+        const folder     = isSales ? 'sales' : 'purchase';
+        const path       = `${folder}/${safeVendor}/${d.date}/${ts}_${safeName}`;
+
+        const { error: stErr } = await supabase.storage.from('excel-uploads').upload(path, d.file, { upsert: true });
+        if (stErr) throw stErr;
+
+        const { data: uploadRow, error: upErr } = await supabase.from('uploads').insert({
+          user_id: profile.id, user_name: profile.name,
+          type, vendor: d.vendor, date: d.date,
+          file_name: d.file.name, file_path: path, file_size: d.file.size,
+        }).select().single();
+        if (upErr) throw upErr;
+
+        const year  = d.date.substring(0,4) + '년';
+        const month = parseInt(d.date.substring(5,7)) + '월';
+        const day   = parseInt(d.date.substring(8,10));
+
+        if (isSales) {
+          const dataRows = d.items.map(item => ({
+            upload_id: uploadRow.id, vendor: d.vendor, date: d.date,
+            year, month, day, product_code: item.code, quantity: item.qty,
+          }));
+          const { error } = await supabase.from('sales_data').insert(dataRows);
+          if (error) throw error;
+        } else {
+          const dataRows = d.items.map(item => ({
+            upload_id: uploadRow.id, vendor: d.vendor, date: d.date,
+            year, month, day, product_code: item.code, quantity: item.qty, amount: item.amt || 0,
+          }));
+          const { error } = await supabase.from('purchase_data').insert(dataRows);
+          if (error) throw error;
+        }
+        success++;
+      } catch (e) { console.error(e); fail++; }
+    }
+
+    setMsg({ type: fail>0?'warn':'success', text: `✅ ${success}건 업로드 완료${fail>0?` / ${fail}건 실패`:''}` });
+    setUploading(false); setFiles([]); setDetected([]);
+    if (onUploaded) onUploaded();
+  }
+
+  const readyCount = detected.filter(d => d.vendor !== '감지 실패' && d.date && d.items.length > 0).length;
+
+  return (
+    <div>
+      <div className={`drop-zone ${dragging?'drag-over':''} ${files.length>0?'has-file':''}`}
+        onClick={() => fileRef.current?.click()}
+        onDragOver={e => { e.preventDefault(); setDragging(true); }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={e => { e.preventDefault(); setDragging(false); handleFiles(e.dataTransfer.files); }}>
+        <div className="drop-icon"><Icon name="upload" style={{width:48,height:48}} /></div>
+        {files.length > 0
+          ? (<><div className="drop-title">{files.length}개 파일 선택됨</div><div className="drop-sub">클릭하여 변경</div></>)
+          : (<><div className="drop-title">판매처 {type} 파일을 드래그하거나 클릭하여 선택</div><div className="drop-sub">여러 파일 동시 선택 가능 · .xlsx, .xls 지원</div></>)
+        }
+        <input ref={fileRef} type="file" accept=".xlsx,.xls" multiple style={{display:'none'}}
+          onChange={e => handleFiles(e.target.files)} />
+      </div>
+
+      {detecting && (
+        <div className="alert alert-info" style={{marginTop:16}}>
+          <span className="loading-spinner" style={{borderColor:'rgba(37,99,235,.3)',borderTopColor:'#2563eb'}} />
+          파일 분석 중...
+        </div>
+      )}
+
+      {detected.length > 0 && !detecting && (
+        <div style={{marginTop:20}}>
+          <div style={{fontSize:14,fontWeight:700,color:'var(--navy)',marginBottom:12}}>
+            감지 결과 확인 — 날짜나 판매처가 틀리면 직접 수정하세요
+          </div>
+          <div className="table-wrap" style={{marginBottom:16}}>
+            <table>
+              <thead>
+                <tr>
+                  <th>파일명</th>
+                  <th>판매처</th>
+                  <th>날짜</th>
+                  <th>상품수</th>
+                  <th>상태</th>
+                </tr>
+              </thead>
+              <tbody>
+                {detected.map((d, i) => (
+                  <tr key={i}>
+                    <td style={{fontSize:12,color:'var(--gray4)',maxWidth:160,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
+                      {d.file.name}
+                    </td>
+                    <td>
+                      <select className="filter-select"
+                        value={d.vendor !== '감지 실패' ? d.vendor : ''}
+                        onChange={e => updateVendor(i, e.target.value)}
+                        style={{padding:'4px 8px',fontSize:12}}>
+                        {d.vendor === '감지 실패' && <option value="">판매처 선택</option>}
+                        {VENDORS.map(v => <option key={v}>{v}</option>)}
+                      </select>
+                    </td>
+                    <td>
+                      <input type="date" className="filter-select" value={d.date}
+                        onChange={e => updateDate(i, e.target.value)}
+                        style={{padding:'4px 8px'}} />
+                    </td>
+                    <td style={{fontSize:13}}>{d.items.length}개</td>
+                    <td>
+                      {d.error ? <span className="badge badge-red">오류</span>
+                        : (!d.date || d.vendor === '감지 실패') ? <span className="badge badge-amber">확인 필요</span>
+                        : <span className="badge badge-green">준비됨</span>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {msg && <div className={`alert alert-${msg.type}`} style={{marginBottom:12}}>{msg.text}</div>}
+          <div style={{display:'flex',gap:10,justifyContent:'flex-end'}}>
+            <button className="btn btn-outline btn-sm" onClick={() => { setFiles([]); setDetected([]); setMsg(null); }}>초기화</button>
+            <button className="btn btn-sm" style={{background:color,color:'white',minWidth:120}}
+              disabled={uploading || readyCount === 0} onClick={handleUpload}>
+              {uploading ? <span className="loading-spinner" /> : `${readyCount}건 업로드`}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
   async function handleFiles(fileList) {
     const arr = Array.from(fileList).filter(f => f.name.match(/\.(xlsx|xls)$/i));
@@ -2249,8 +2488,7 @@ function UploadPage({ type, profile }) {
         </button>
       </div>
 
-      {tab === 'upload' && isSales && <BulkUploadForm profile={profile} onUploaded={handleUploaded} />}
-      {tab === 'upload' && !isSales && <UploadForm type={type} profile={profile} color={color} bgColor={bgColor} onUploaded={handleUploaded} />}
+      {tab === 'upload' && <BulkUploadForm type={type} profile={profile} onUploaded={handleUploaded} />}
       {tab === 'data'   && isSales && <SalesDataView profile={profile} refreshKey={refreshKey} />}
       {tab === 'data'   && !isSales && <DataView type={type} profile={profile} color={color} bgColor={bgColor} refreshKey={refreshKey} />}
     </div>
