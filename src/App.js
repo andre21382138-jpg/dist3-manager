@@ -2300,15 +2300,12 @@ function ProductsPage() {
     setUploading(true); setMsg(null);
     try {
       const ab = await file.arrayBuffer();
+      const wb = XLSX.read(ab, { type: 'array', dense: true });
 
-      // 1단계: SheetNames만 먼저 읽기 (전체 파싱 없이)
-      const wbMeta = XLSX.read(ab, { type: 'array', bookSheets: true });
-      const sheetName = wbMeta.SheetNames.find(s => s.includes('상품리스트')) || wbMeta.SheetNames[0];
-
-      // 2단계: 해당 시트만 파싱
-      const wb = XLSX.read(ab, { type: 'array', sheets: sheetName });
+      // '상품리스트' 시트 찾기
+      const sheetName = wb.SheetNames.find(s => s.includes('상품리스트')) || wb.SheetNames[0];
       const ws = wb.Sheets[sheetName];
-      const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+      const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', blankrows: true, raw: true });
 
       // 2행이 헤더, 3행부터 데이터
       const upsertRows = [];
@@ -2318,11 +2315,11 @@ function ProductsPage() {
         if (!code || !code.startsWith('88')) continue;
         upsertRows.push({
           product_code: code,
-          product_name: r[5] || null,
-          brand:        r[6] || null,
-          category_1:   r[7] || null,
-          category_2:   r[8] || null,
-          category_3:   r[9] || null,
+          product_name: r[5]  || null,
+          brand:        r[6]  || null,
+          category_1:   r[7]  || null,
+          category_2:   r[8]  || null,
+          category_3:   r[9]  || null,
           final_cost:   Number(r[20]) || null,
           normal_price: Number(r[24]) || null,
           sale_price:   Number(r[25]) || null,
