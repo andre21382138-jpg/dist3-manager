@@ -1469,6 +1469,7 @@ async function detectAndParseFile(file, dataType = '매출') {
       const utf8Peek = new TextDecoder('utf-8').decode(arrayBuffer.slice(0, 500));
       const isEucKr  = utf8Peek.toLowerCase().includes('euc-kr');
       const isUtf8   = utf8Peek.toLowerCase().includes('utf-8');
+      console.log('인코딩 감지 - isEucKr:', isEucKr, 'isUtf8:', isUtf8);
 
       if (isEucKr || (!isUtf8)) {
         // EUC-KR: charset 메타 태그를 utf-8로 바꿔서 DOMParser가 올바르게 해석하도록
@@ -1482,6 +1483,7 @@ async function detectAndParseFile(file, dataType = '매출') {
 
       const vendor = detectVendorFromText(htmlStr);
       const date   = extractDate(htmlStr);
+      console.log('vendor:', vendor, 'date:', date, 'dataType:', dataType);
       const tables = parseHtmlTables(htmlStr);
       const items  = [];
 
