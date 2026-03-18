@@ -1314,10 +1314,13 @@ function HomePage({ onNavigate, profile }) {
         <div className="page-sub">{monthLabel} 판매처별 매입·매출 현황</div>
       </div>
 
-      {/* 2 x 1 그리드 */}
+      {/* 매입 2개 + 매출 1개 */}
       <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:16, marginBottom:28 }}>
-        <VendorSummaryCard type="매입" metric="건수"  color="#2563eb" bgColor="#eff6ff" />
-        <VendorSummaryCard type="매출" metric="건수"  color="#22c55e" bgColor="#f0fdf4" />
+        <VendorSummaryCard type="매입" metric="건수"   color="#2563eb" bgColor="#eff6ff" />
+        <VendorSummaryCard type="매입" metric="공급가"  color="#2563eb" bgColor="#eff6ff" />
+        <div style={{ gridColumn:'span 2' }}>
+          <VendorSummaryCard type="매출" metric="건수" color="#22c55e" bgColor="#f0fdf4" />
+        </div>
       </div>
 
       {/* 공지사항 */}
