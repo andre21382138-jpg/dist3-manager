@@ -1314,12 +1314,10 @@ function HomePage({ onNavigate, profile }) {
         <div className="page-sub">{monthLabel} 판매처별 매입·매출 현황</div>
       </div>
 
-      {/* 2 x 2 그리드 */}
+      {/* 2 x 1 그리드 */}
       <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:16, marginBottom:28 }}>
         <VendorSummaryCard type="매입" metric="건수"  color="#2563eb" bgColor="#eff6ff" />
-        <VendorSummaryCard type="매입" metric="공급가" color="#2563eb" bgColor="#eff6ff" />
         <VendorSummaryCard type="매출" metric="건수"  color="#22c55e" bgColor="#f0fdf4" />
-        <VendorSummaryCard type="매출" metric="매출액" color="#22c55e" bgColor="#f0fdf4" />
       </div>
 
       {/* 공지사항 */}
@@ -2633,8 +2631,7 @@ function SalesQueryPage() {
     // 조인 + 브랜드 필터
     const joined = salesData.map(s => {
       const p = productMap[s.product_code] || {};
-      const finalCost   = p.final_cost   || 0;
-      const normalPrice = p.normal_price || 0;
+      const finalCost = p.final_cost || 0;
       const qty = s.quantity || 0;
       return {
         date:         s.date,
@@ -2643,12 +2640,8 @@ function SalesQueryPage() {
         product_name: p.product_name || s.product_code,
         product_code: s.product_code,
         final_cost:   finalCost,
-        normal_price: normalPrice,
-        sale_price:   p.sale_price   || null,
         quantity:     qty,
         total_cost:   finalCost * qty,
-        total_sales:  normalPrice * qty,
-        margin:       (normalPrice - finalCost) * qty,
       };
     }).filter(r => selBrands.size === 0 || selBrands.has(r.brand));
 
@@ -2657,11 +2650,9 @@ function SalesQueryPage() {
   }
 
   const totals = rows.reduce((acc, r) => ({
-    quantity:    acc.quantity    + r.quantity,
-    total_cost:  acc.total_cost  + r.total_cost,
-    total_sales: acc.total_sales + r.total_sales,
-    margin:      acc.margin      + r.margin,
-  }), { quantity:0, total_cost:0, total_sales:0, margin:0 });
+    quantity:   acc.quantity   + r.quantity,
+    total_cost: acc.total_cost + r.total_cost,
+  }), { quantity:0, total_cost:0 });
 
   function fmt(n) { return n ? Math.round(n).toLocaleString() : '-'; }
 
@@ -2768,12 +2759,11 @@ function SalesQueryPage() {
       ) : (
         <>
           {rows.length > 0 && (
-            <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:12, marginBottom:20 }}>
+            <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:12, marginBottom:20 }}>
               {[
-                { label:'판매수량', value: totals.quantity.toLocaleString() + ' EA', color:'#2563eb' },
-                { label:'총판매원가', value: fmt(totals.total_cost) + ' 원', color:'#ef4444' },
-                { label:'총판매금액', value: fmt(totals.total_sales) + ' 원', color:'#22c55e' },
-                { label:'마진', value: fmt(totals.margin) + ' 원', color:'#a855f7' },
+                { label:'총 판매수량', value: totals.quantity.toLocaleString() + ' EA', color:'#2563eb' },
+                { label:'총 판매원가', value: fmt(totals.total_cost) + ' 원', color:'#ef4444' },
+                { label:'조회 결과', value: rows.length.toLocaleString() + ' 건', color:'#a855f7' },
               ].map(s => (
                 <div key={s.label} style={{ background:'white', borderRadius:10, padding:'16px 20px', boxShadow:'var(--shadow)', borderTop:`3px solid ${s.color}` }}>
                   <div style={{ fontSize:12, color:'var(--gray3)', marginBottom:6 }}>{s.label}</div>
@@ -2796,12 +2786,8 @@ function SalesQueryPage() {
                       <th>브랜드</th>
                       <th>상품명</th>
                       <th style={{ textAlign:'right' }}>최종원가</th>
-                      <th style={{ textAlign:'right' }}>정상판매가</th>
-                      <th style={{ textAlign:'right' }}>행사판매가</th>
                       <th style={{ textAlign:'right' }}>판매수량</th>
                       <th style={{ textAlign:'right' }}>총판매원가</th>
-                      <th style={{ textAlign:'right' }}>총판매금액</th>
-                      <th style={{ textAlign:'right' }}>마진</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -2815,14 +2801,10 @@ function SalesQueryPage() {
                           </span>
                         </td>
                         <td style={{ fontSize:13 }}>{r.brand}</td>
-                        <td style={{ fontSize:13, maxWidth:200, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{r.product_name}</td>
+                        <td style={{ fontSize:13, maxWidth:220, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{r.product_name}</td>
                         <td style={{ textAlign:'right', fontSize:13 }}>{fmt(r.final_cost)}</td>
-                        <td style={{ textAlign:'right', fontSize:13 }}>{fmt(r.normal_price)}</td>
-                        <td style={{ textAlign:'right', fontSize:13, color:'var(--gray3)' }}>{r.sale_price ? fmt(r.sale_price) : '-'}</td>
                         <td style={{ textAlign:'right', fontWeight:600 }}>{r.quantity.toLocaleString()}</td>
-                        <td style={{ textAlign:'right', fontSize:13 }}>{fmt(r.total_cost)}</td>
-                        <td style={{ textAlign:'right', fontSize:13, fontWeight:600 }}>{fmt(r.total_sales)}</td>
-                        <td style={{ textAlign:'right', fontSize:13, color:r.margin>=0?'#22c55e':'#ef4444', fontWeight:600 }}>{fmt(r.margin)}</td>
+                        <td style={{ textAlign:'right', fontSize:13, fontWeight:600 }}>{fmt(r.total_cost)}</td>
                       </tr>
                     ))}
                   </tbody>
