@@ -2680,15 +2680,6 @@ function SalesQueryPage() {
                       </tr>
                     ))}
                   </tbody>
-                  <tfoot>
-                    <tr style={{ background:'var(--gray1)', fontWeight:700 }}>
-                      <td colSpan={7} style={{ textAlign:'center', fontSize:13 }}>합계</td>
-                      <td style={{ textAlign:'right' }}>{totals.quantity.toLocaleString()}</td>
-                      <td style={{ textAlign:'right' }}>{fmt(totals.total_cost)}</td>
-                      <td style={{ textAlign:'right' }}>{fmt(totals.total_sales)}</td>
-                      <td style={{ textAlign:'right', color:totals.margin>=0?'#22c55e':'#ef4444' }}>{fmt(totals.margin)}</td>
-                    </tr>
-                  </tfoot>
                 </table>
               </div>
             )}
