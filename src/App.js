@@ -1550,6 +1550,7 @@ async function detectAndParseFile(file, dataType = '매출') {
       }
     }
   } catch (e) {
+    console.error('detectAndParseFile 오류:', e);
     throw new Error(`파싱 실패: ${e.message}`);
   }
 
@@ -1642,6 +1643,7 @@ function BulkUploadForm({ type, profile, onUploaded }) {
         }
         if (parsed.length === 0) results.push({ file, vendor: '감지 실패', date: '', items: [], needsDate: false, error: '판매처를 인식할 수 없습니다.' });
       } catch (e) {
+        console.error('파싱 오류:', file.name, e);
         results.push({ file, vendor: '감지 실패', date: '', items: [], needsDate: false, error: e.message });
       }
     }
