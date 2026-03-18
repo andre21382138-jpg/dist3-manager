@@ -1346,6 +1346,7 @@ async function detectAndParseFile(file, dataType = '매출') {
   const arrayBuffer = await file.arrayBuffer();
   const uint8 = new Uint8Array(arrayBuffer.slice(0, 4));
   const isPK = uint8[0] === 0x50 && uint8[1] === 0x4B;
+  console.log('파싱 시작:', file.name, 'isPK:', isPK, 'dataType:', dataType, 'size:', arrayBuffer.byteLength);
 
   const results = [];
 
