@@ -2300,11 +2300,15 @@ function ProductsPage() {
     setUploading(true); setMsg(null);
     try {
       const ab = await file.arrayBuffer();
-      const wb = XLSX.read(ab, { type: 'array' });
-      // '상품리스트' 시트 찾기
-      const sheetName = wb.SheetNames.find(s => s.includes('상품리스트')) || wb.SheetNames[0];
+
+      // 1단계: SheetNames만 먼저 읽기 (전체 파싱 없이)
+      const wbMeta = XLSX.read(ab, { type: 'array', bookSheets: true });
+      const sheetName = wbMeta.SheetNames.find(s => s.includes('상품리스트')) || wbMeta.SheetNames[0];
+
+      // 2단계: 해당 시트만 파싱
+      const wb = XLSX.read(ab, { type: 'array', sheets: sheetName });
       const ws = wb.Sheets[sheetName];
-      const rows = XLSX.utils.sheet_to_json(ws, { header: 1 });
+      const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
 
       // 2행이 헤더, 3행부터 데이터
       const upsertRows = [];
