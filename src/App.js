@@ -2727,7 +2727,137 @@ function SalesQueryPage() {
 }
 
 /* ─── PURCHASE QUERY PAGE (매입 데이터 조회 - 준비 중) ──────────────── */
+/* ─── 매입 자사 양식 다운로드 ───────────────────────────────────────── */
+async function downloadPurchaseFormat(rows, vendor, date) {
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet('매입내역');
+
+  ws.columns = [
+    { width: 12 }, // 업체명
+    { width: 8  }, // 연도
+    { width: 6  }, // 월
+    { width: 5  }, // 일
+    { width: 14 }, // 일자
+    { width: 18 }, // 상품코드
+    { width: 12 }, // 공급수량
+    { width: 14 }, // 총액(VAT별도)
+  ];
+
+  const FILL = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFCCFF' } };
+  const FONT = { name: '맑은 고딕', size: 10 };
+  const CENTER = { horizontal: 'center' };
+  const ACCT = '_-* #,##0_-;\\-* #,##0_-;_-* "-"_-;_-@_-';
+
+  rows.forEach(r => {
+    const row = ws.addRow([
+      r.업체명, r.연도, r.월, r.일, r.일자, r.상품코드, r.공급수량, r.총액
+    ]);
+    row.eachCell({ includeEmpty: false }, (cell, colNum) => {
+      cell.font = FONT;
+      cell.fill = FILL;
+      if (colNum <= 5) cell.alignment = CENTER;
+      if (colNum === 6) { cell.numFmt = '@'; cell.value = String(r.상품코드); }
+      if (colNum === 7 || colNum === 8) cell.numFmt = ACCT;
+    });
+  });
+
+  const buffer = await wb.xlsx.writeBuffer();
+  const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `매입내역_${vendor}_${date}.xlsx`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+/* ─── PURCHASE QUERY PAGE (매입 데이터 조회) ────────────────────────── */
 function PurchaseQueryPage() {
+  const [rows, setRows]             = useState([]);
+  const [loading, setLoading]       = useState(false);
+  const [searched, setSearched]     = useState(false);
+  const [filterDateFrom, setFilterDateFrom] = useState('');
+  const [filterDateTo, setFilterDateTo]     = useState('');
+  const [selVendors, setSelVendors] = useState(new Set());
+  const [selected, setSelected]     = useState(new Set());
+  const [downloading, setDownloading] = useState(false);
+
+  function toggleVendor(v) {
+    setSelVendors(prev => { const s = new Set(prev); s.has(v) ? s.delete(v) : s.add(v); return s; });
+  }
+  function toggleAllVendors() {
+    setSelVendors(prev => prev.size === VENDORS.length ? new Set() : new Set(VENDORS));
+  }
+  function resetFilters() {
+    setFilterDateFrom(''); setFilterDateTo('');
+    setSelVendors(new Set()); setRows([]); setSearched(false); setSelected(new Set());
+  }
+
+  async function loadData() {
+    setLoading(true); setSearched(true); setSelected(new Set());
+    let q = supabase.from('purchase_data').select('*');
+    if (filterDateFrom) q = q.gte('date', filterDateFrom);
+    if (filterDateTo)   q = q.lte('date', filterDateTo);
+    if (selVendors.size > 0) q = q.in('vendor', [...selVendors]);
+    q = q.order('date', { ascending: false }).order('vendor');
+    const { data } = await q;
+    setRows(data || []);
+    setLoading(false);
+  }
+
+  // 요약
+  const totals = rows.reduce((acc, r) => ({
+    quantity: acc.quantity + (r.quantity || 0),
+    amount:   acc.amount   + (r.amount   || 0),
+  }), { quantity: 0, amount: 0 });
+
+  function fmt(n) { return n ? Math.round(n).toLocaleString() : '-'; }
+
+  // 선택
+  function toggleSelect(key) {
+    setSelected(prev => { const s = new Set(prev); s.has(key) ? s.delete(key) : s.add(key); return s; });
+  }
+  function toggleAll() {
+    const keys = [...new Set(rows.map(r => `${r.vendor}|${r.date}`))];
+    setSelected(prev => prev.size === keys.length ? new Set() : new Set(keys));
+  }
+
+  async function handleDownload(keys) {
+    if (!keys.size) return;
+    setDownloading(true);
+    try {
+      const conditions = Array.from(keys).map(k => { const [vendor, date] = k.split('|'); return { vendor, date }; });
+      let allRows = [];
+      for (const { vendor, date } of conditions) {
+        const { data } = await supabase.from('purchase_data').select('*').eq('vendor', vendor).eq('date', date);
+        allRows = allRows.concat(data || []);
+      }
+      const label     = conditions.length === 1 ? conditions[0].vendor : '통합';
+      const dateLabel = conditions.length === 1 ? conditions[0].date : new Date().toISOString().split('T')[0];
+      await downloadPurchaseFormat(
+        allRows.map(r => ({
+          업체명: r.vendor, 연도: r.year, 월: r.month, 일: r.day,
+          일자: r.date, 상품코드: r.product_code,
+          공급수량: r.quantity, 총액: r.amount || 0,
+        })),
+        label, dateLabel
+      );
+    } catch(e) { console.error(e); }
+    setDownloading(false);
+  }
+
+  // 날짜/판매처별 요약
+  const summaryMap = {};
+  rows.forEach(r => {
+    const key = `${r.vendor}|${r.date}`;
+    if (!summaryMap[key]) summaryMap[key] = { vendor: r.vendor, date: r.date, count: 0, qty: 0, amt: 0 };
+    summaryMap[key].count++;
+    summaryMap[key].qty += r.quantity || 0;
+    summaryMap[key].amt += r.amount   || 0;
+  });
+  const summaries = Object.values(summaryMap).sort((a,b) => b.date.localeCompare(a.date) || a.vendor.localeCompare(b.vendor));
+  const allKeys   = summaries.map(s => `${s.vendor}|${s.date}`);
+
   return (
     <div>
       <div className="page-header">
@@ -2735,12 +2865,146 @@ function PurchaseQueryPage() {
           <span style={{ background:'#eff6ff', color:'#2563eb', padding:'2px 12px', borderRadius:20, fontSize:14, marginRight:8 }}>매입</span>
           데이터 조회
         </div>
+        <div className="page-sub">조회 조건을 설정하고 조회 버튼을 눌러주세요.</div>
       </div>
-      <div className="empty-state" style={{ background:'white', borderRadius:10, padding:80 }}>
-        <Icon name="truck" style={{ width:48,height:48 }} />
-        <p style={{ marginTop:12, fontSize:15, fontWeight:600, color:'var(--navy)' }}>준비 중입니다.</p>
-        <p style={{ marginTop:6 }}>매입 데이터 조회 기능은 곧 추가될 예정입니다.</p>
+
+      {/* 검색 조건 */}
+      <div className="card" style={{ marginBottom:20 }}>
+        <div style={{ marginBottom:20 }}>
+          <label className="form-label">조회기간</label>
+          <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+            <input type="date" className="form-input" style={{ width:160 }} value={filterDateFrom} onChange={e => setFilterDateFrom(e.target.value)} />
+            <span style={{ color:'var(--gray3)' }}>~</span>
+            <input type="date" className="form-input" style={{ width:160 }} value={filterDateTo} onChange={e => setFilterDateTo(e.target.value)} />
+          </div>
+        </div>
+        <div className="divider" />
+        <div style={{ marginBottom:20 }}>
+          <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:8 }}>
+            <label className="form-label" style={{ margin:0 }}>판매처</label>
+            <button className="btn btn-outline btn-sm" style={{ padding:'2px 10px', fontSize:11 }} onClick={toggleAllVendors}>
+              {selVendors.size === VENDORS.length ? '전체 해제' : '전체 선택'}
+            </button>
+            {selVendors.size > 0 && <span style={{ fontSize:11, color:'var(--blue)', fontWeight:600 }}>{selVendors.size}개 선택</span>}
+          </div>
+          <div style={{ display:'flex', flexWrap:'wrap', gap:6 }}>
+            {VENDORS.map(v => (
+              <button key={v} onClick={() => toggleVendor(v)}
+                style={{
+                  padding:'5px 12px', borderRadius:20, fontSize:12, fontWeight:500, cursor:'pointer', transition:'all .15s',
+                  border: `1.5px solid ${selVendors.has(v) ? VENDOR_COLORS[v]||'var(--blue)' : 'var(--gray2)'}`,
+                  background: selVendors.has(v) ? `${VENDOR_COLORS[v]||'var(--blue)'}15` : 'white',
+                  color: selVendors.has(v) ? VENDOR_COLORS[v]||'var(--blue)' : 'var(--gray4)',
+                }}>
+                <span style={{ display:'inline-block', width:7, height:7, borderRadius:'50%', background:VENDOR_COLORS[v]||'#94a3b8', marginRight:5, verticalAlign:'middle' }} />
+                {v}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div style={{ display:'flex', gap:10 }}>
+          <button className="btn btn-sm" style={{ background:'var(--blue)', color:'white', minWidth:100 }}
+            disabled={loading} onClick={loadData}>
+            {loading ? <span className="loading-spinner" /> : '🔍 조회'}
+          </button>
+          <button className="btn btn-sm btn-outline" onClick={resetFilters}>초기화</button>
+        </div>
       </div>
+
+      {!searched ? (
+        <div className="empty-state" style={{ background:'white', borderRadius:10, padding:64 }}>
+          <Icon name="truck" style={{ width:48,height:48 }} />
+          <p>조건을 설정하고 조회 버튼을 눌러주세요.</p>
+        </div>
+      ) : (
+        <>
+          {/* 요약 카드 */}
+          {rows.length > 0 && (
+            <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:12, marginBottom:20 }}>
+              {[
+                { label:'총 공급수량', value: totals.quantity.toLocaleString() + ' EA', color:'#2563eb' },
+                { label:'총 공급금액', value: fmt(totals.amount) + ' 원', color:'#ef4444' },
+                { label:'조회 결과', value: summaries.length.toLocaleString() + ' 건', color:'#a855f7' },
+              ].map(s => (
+                <div key={s.label} style={{ background:'white', borderRadius:10, padding:'16px 20px', boxShadow:'var(--shadow)', borderTop:`3px solid ${s.color}` }}>
+                  <div style={{ fontSize:12, color:'var(--gray3)', marginBottom:6 }}>{s.label}</div>
+                  <div style={{ fontSize:16, fontWeight:700, color:s.color }}>{s.value}</div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* 다운로드 버튼 */}
+          <div className="filter-bar" style={{ marginBottom:16 }}>
+            {selected.size > 0 && (
+              <span style={{ fontSize:13, color:'var(--gray3)' }}>{selected.size}건 선택</span>
+            )}
+            {selected.size > 0 && (
+              <button className="btn btn-sm" style={{ background:'#2563eb', color:'white' }}
+                disabled={downloading} onClick={() => handleDownload(selected)}>
+                {downloading ? <span className="loading-spinner" /> : <><Icon name="download" style={{ width:14,height:14 }} /> 선택 다운로드</>}
+              </button>
+            )}
+            {summaries.length > 0 && (
+              <button className="btn btn-sm btn-blue-light" disabled={downloading}
+                onClick={() => handleDownload(new Set(allKeys))}>
+                전체 다운로드
+              </button>
+            )}
+          </div>
+
+          {/* 테이블 */}
+          <div className="table-wrap">
+            {summaries.length === 0 ? (
+              <div className="empty-state"><Icon name="file" style={{ width:48,height:48 }} /><p>조회 결과가 없습니다.</p></div>
+            ) : (
+              <table>
+                <thead>
+                  <tr>
+                    <th style={{ width:40 }}>
+                      <input type="checkbox" checked={selected.size === allKeys.length && allKeys.length > 0} onChange={toggleAll} />
+                    </th>
+                    <th>날짜</th>
+                    <th>판매처</th>
+                    <th style={{ textAlign:'right' }}>상품수</th>
+                    <th style={{ textAlign:'right' }}>공급수량</th>
+                    <th style={{ textAlign:'right' }}>공급금액</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {summaries.map(s => {
+                    const key = `${s.vendor}|${s.date}`;
+                    return (
+                      <tr key={key} style={{ cursor:'pointer' }} onClick={() => toggleSelect(key)}>
+                        <td onClick={e => e.stopPropagation()}>
+                          <input type="checkbox" checked={selected.has(key)} onChange={() => toggleSelect(key)} />
+                        </td>
+                        <td style={{ fontWeight:600, fontVariantNumeric:'tabular-nums' }}>{s.date}</td>
+                        <td>
+                          <span style={{ display:'inline-flex', alignItems:'center', gap:6 }}>
+                            <span className="vendor-dot" style={{ background:VENDOR_COLORS[s.vendor]||'#94a3b8' }} />
+                            <span style={{ fontWeight:500 }}>{s.vendor}</span>
+                          </span>
+                        </td>
+                        <td style={{ textAlign:'right', fontSize:13, color:'var(--gray4)' }}>{s.count}개</td>
+                        <td style={{ textAlign:'right', fontWeight:600 }}>{s.qty.toLocaleString()}</td>
+                        <td style={{ textAlign:'right', fontSize:13 }}>{fmt(s.amt)}</td>
+                        <td onClick={e => e.stopPropagation()}>
+                          <button className="btn btn-sm btn-blue-light"
+                            onClick={() => handleDownload(new Set([key]))} disabled={downloading}>
+                            <Icon name="download" style={{ width:14,height:14 }} />
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </>
+      )}
     </div>
   );
 }
