@@ -1550,8 +1550,8 @@ async function detectAndParseFile(file, dataType = '매출') {
       }
 
       if (vendor && items.length > 0) {
-        // 홈플러스/익스프레스 분리 처리
-        if (vendor === '홈플러스' || vendor === '익스프레스') {
+        // 매입 홈플러스/익스프레스는 _v로 분리, 매출은 vendor 그대로
+        if ((vendor === '홈플러스' || vendor === '익스프레스') && dataType === '매입') {
           const hyperItems = items.filter(i => i._v === '홈플러스');
           const expItems   = items.filter(i => i._v === '익스프레스');
           if (hyperItems.length > 0) results.push({ vendor: '홈플러스', date, items: hyperItems });
