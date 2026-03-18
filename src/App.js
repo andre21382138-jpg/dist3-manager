@@ -1249,7 +1249,7 @@ function VendorSummaryCard({ type, metric, color, bgColor }) {
   const isMoney = metric === '매출액' || metric === '공급가';
   const fmtVal  = v => isMoney ? (v >= 10000 ? (v/10000).toFixed(0)+'만' : v.toLocaleString()) : v.toLocaleString();
 
-  const metricLabel = metric === '건수' ? (type === '매입' ? '업로드 건수' : '판매수량 합계') :
+  const metricLabel = metric === '건수' ? (type === '매입' ? '공급수량 기준' : '판매수량 합계') :
                       metric === '공급가' ? '공급가 기준' : '매출액 기준';
   const fmtTotal = v => isMoney ? Math.round(v/10000).toLocaleString()+'만원' :
                         (type === '매출' ? v.toLocaleString()+' EA' : v.toLocaleString()+'건');
