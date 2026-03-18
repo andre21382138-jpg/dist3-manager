@@ -1189,89 +1189,110 @@ function NoticeBoard({ profile }) {
 }
 
 /* ─── HOME PAGE ────────────────────────────────────────────────────── */
-function VendorSummaryCard({ type, color, bgColor }) {
-  const [data, setData]       = useState([]);
+function VendorSummaryCard({ type, metric, color, bgColor }) {
+  const [data, setData]     = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const now   = new Date();
-    const year  = now.getFullYear();
-    const month = String(now.getMonth() + 1).padStart(2, '0');
-    const from  = `${year}-${month}-01`;
+    const now     = new Date();
+    const year    = now.getFullYear();
+    const month   = String(now.getMonth() + 1).padStart(2, '0');
+    const from    = `${year}-${month}-01`;
     const lastDay = new Date(year, now.getMonth() + 1, 0).getDate();
-    const to    = `${year}-${month}-${lastDay}`;
+    const to      = `${year}-${month}-${lastDay}`;
 
     async function load() {
       setLoading(true);
-      if (type === '매출') {
-        const { data: rows } = await supabase.from('sales_data')
-          .select('vendor, quantity')
-          .gte('date', from).lte('date', to);
-        const map = {};
-        (rows || []).forEach(r => {
-          map[r.vendor] = (map[r.vendor] || 0) + (r.quantity || 0);
-        });
-        setData(VENDORS.map(v => ({ vendor: v, value: map[v] || 0 })).filter(d => d.value > 0));
-      } else {
+      const map = {};
+
+      if (type === '매입' && metric === '건수') {
+        // 업로드 건수
         const { data: rows } = await supabase.from('uploads')
-          .select('vendor')
-          .eq('type', '매입')
-          .gte('date', from).lte('date', to);
-        const map = {};
+          .select('vendor').eq('type', '매입').gte('date', from).lte('date', to);
         (rows || []).forEach(r => { map[r.vendor] = (map[r.vendor] || 0) + 1; });
-        setData(VENDORS.map(v => ({ vendor: v, value: map[v] || 0 })).filter(d => d.value > 0));
+
+      } else if (type === '매입' && metric === '공급가') {
+        // 매입 공급가 - 아직 파싱 데이터 없음, 업로드 건수로 대체
+        const { data: rows } = await supabase.from('uploads')
+          .select('vendor').eq('type', '매입').gte('date', from).lte('date', to);
+        (rows || []).forEach(r => { map[r.vendor] = (map[r.vendor] || 0) + 1; });
+
+      } else if (type === '매출' && metric === '건수') {
+        // 매출 상품 건수 (rows)
+        const { data: rows } = await supabase.from('sales_data')
+          .select('vendor').gte('date', from).lte('date', to);
+        (rows || []).forEach(r => { map[r.vendor] = (map[r.vendor] || 0) + 1; });
+
+      } else if (type === '매출' && metric === '매출액') {
+        // 매출액 = quantity * normal_price
+        const { data: rows } = await supabase.from('sales_data')
+          .select('vendor, product_code, quantity').gte('date', from).lte('date', to);
+        if (rows?.length) {
+          const codes = [...new Set(rows.map(r => r.product_code))];
+          const { data: prods } = await supabase.from('products').select('product_code, normal_price').in('product_code', codes);
+          const priceMap = {};
+          (prods || []).forEach(p => { priceMap[p.product_code] = p.normal_price || 0; });
+          rows.forEach(r => {
+            const amt = (priceMap[r.product_code] || 0) * (r.quantity || 0);
+            map[r.vendor] = (map[r.vendor] || 0) + amt;
+          });
+        }
       }
+
+      setData(VENDORS.map(v => ({ vendor: v, value: map[v] || 0 })).filter(d => d.value > 0));
       setLoading(false);
     }
     load();
-  }, [type]);
+  }, [type, metric]);
 
   const total = data.reduce((s, d) => s + d.value, 0);
-  const now   = new Date();
-  const monthLabel = `${now.getFullYear()}년 ${now.getMonth()+1}월`;
-  const unit  = type === '매출' ? '건(수량)' : '건(업로드)';
+  const isMoney = metric === '매출액' || metric === '공급가';
+  const fmtVal  = v => isMoney ? (v >= 10000 ? (v/10000).toFixed(0)+'만' : v.toLocaleString()) : v.toLocaleString();
+  const fmtTotal = v => isMoney ? Math.round(v/10000).toLocaleString()+'만원' : v.toLocaleString()+'건';
+
+  const metricLabel = metric === '건수' ? (type === '매입' ? '업로드 건수' : '상품 건수') :
+                      metric === '공급가' ? '공급가 기준' : '매출액 기준';
 
   return (
-    <div style={{ background:'white', borderRadius:12, padding:24, boxShadow:'var(--shadow)', flex:1 }}>
+    <div style={{ background:'white', borderRadius:12, padding:22, boxShadow:'var(--shadow)', flex:1 }}>
       {/* 헤더 */}
-      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:16 }}>
+      <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', marginBottom:14 }}>
         <div>
-          <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-            <span style={{ background:bgColor, color, padding:'2px 10px', borderRadius:20, fontSize:12, fontWeight:600 }}>{type}</span>
-            <span style={{ fontSize:15, fontWeight:700, color:'var(--navy)' }}>판매처별 현황</span>
+          <div style={{ display:'flex', alignItems:'center', gap:7, marginBottom:4 }}>
+            <span style={{ background:bgColor, color, padding:'3px 12px', borderRadius:20, fontSize:13, fontWeight:700 }}>{type}</span>
+            <span style={{ fontSize:13, fontWeight:600, color:'var(--navy)' }}>판매처별 현황</span>
           </div>
-          <div style={{ fontSize:12, color:'var(--gray3)', marginTop:4 }}>{monthLabel} 누적</div>
+          <div style={{ fontSize:12, color:'var(--gray3)' }}>{metricLabel}</div>
         </div>
         <div style={{ textAlign:'right' }}>
-          <div style={{ fontSize:11, color:'var(--gray3)' }}>전체 합계</div>
-          <div style={{ fontSize:18, fontWeight:700, color }}>{total.toLocaleString()} <span style={{ fontSize:11, fontWeight:400 }}>{unit}</span></div>
+          <div style={{ fontSize:11, color:'var(--gray3)' }}>합계</div>
+          <div style={{ fontSize:16, fontWeight:700, color }}>{fmtTotal(total)}</div>
         </div>
       </div>
 
       {loading ? (
-        <div style={{ textAlign:'center', padding:32, color:'var(--gray3)', fontSize:13 }}>불러오는 중...</div>
+        <div style={{ textAlign:'center', padding:24, color:'var(--gray3)', fontSize:13 }}>불러오는 중...</div>
       ) : data.length === 0 ? (
-        <div style={{ textAlign:'center', padding:32, color:'var(--gray3)', fontSize:13 }}>당월 데이터가 없습니다.</div>
+        <div style={{ textAlign:'center', padding:24, color:'var(--gray3)', fontSize:13 }}>당월 데이터 없음</div>
       ) : (
-        <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+        <div style={{ display:'flex', flexDirection:'column', gap:9 }}>
           {data.sort((a,b) => b.value - a.value).map(d => {
             const pct = total > 0 ? Math.round(d.value / total * 100) : 0;
             const vc  = VENDOR_COLORS[d.vendor] || color;
             return (
               <div key={d.vendor}>
-                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:4 }}>
-                  <div style={{ display:'flex', alignItems:'center', gap:7 }}>
-                    <span className="vendor-dot" style={{ background:vc, width:9, height:9 }} />
-                    <span style={{ fontSize:13, fontWeight:500, color:'var(--navy)' }}>{d.vendor}</span>
+                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:3 }}>
+                  <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+                    <span className="vendor-dot" style={{ background:vc, width:8, height:8 }} />
+                    <span style={{ fontSize:12, fontWeight:500, color:'var(--navy)' }}>{d.vendor}</span>
                   </div>
-                  <div style={{ fontSize:13, color:'var(--gray4)' }}>
-                    <strong style={{ color:'var(--navy)' }}>{d.value.toLocaleString()}</strong>
+                  <div style={{ fontSize:12, color:'var(--gray4)' }}>
+                    <strong style={{ color:'var(--navy)' }}>{fmtVal(d.value)}</strong>
                     <span style={{ fontSize:11, marginLeft:4, color:'var(--gray3)' }}>{pct}%</span>
                   </div>
                 </div>
-                {/* 바 차트 */}
-                <div style={{ height:6, background:'var(--gray2)', borderRadius:4, overflow:'hidden' }}>
-                  <div style={{ height:'100%', width:`${pct}%`, background:vc, borderRadius:4, transition:'width .5s ease' }} />
+                <div style={{ height:5, background:'var(--gray2)', borderRadius:4, overflow:'hidden' }}>
+                  <div style={{ height:'100%', width:`${pct}%`, background:vc, borderRadius:4, transition:'width .6s ease' }} />
                 </div>
               </div>
             );
@@ -1293,10 +1314,12 @@ function HomePage({ onNavigate, profile }) {
         <div className="page-sub">{monthLabel} 판매처별 매입·매출 현황</div>
       </div>
 
-      {/* 매입/매출 현황 카드 */}
-      <div style={{ display:'flex', gap:20, marginBottom:28 }}>
-        <VendorSummaryCard type="매입" color="#2563eb" bgColor="#eff6ff" />
-        <VendorSummaryCard type="매출" color="#22c55e" bgColor="#f0fdf4" />
+      {/* 2 x 2 그리드 */}
+      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:16, marginBottom:28 }}>
+        <VendorSummaryCard type="매입" metric="건수"  color="#2563eb" bgColor="#eff6ff" />
+        <VendorSummaryCard type="매입" metric="공급가" color="#2563eb" bgColor="#eff6ff" />
+        <VendorSummaryCard type="매출" metric="건수"  color="#22c55e" bgColor="#f0fdf4" />
+        <VendorSummaryCard type="매출" metric="매출액" color="#22c55e" bgColor="#f0fdf4" />
       </div>
 
       {/* 공지사항 */}
