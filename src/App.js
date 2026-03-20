@@ -1400,23 +1400,8 @@ async function detectAndParseFile(file, dataType = '매출') {
             results.push({ vendor: '이마트', date, items: Object.entries(emMap).map(([code,qty])=>({code,qty,amt:0})) });
           if (Object.keys(edMap).length > 0)
             results.push({ vendor: '에브리데이', date, items: Object.entries(edMap).map(([code,qty])=>({code,qty,amt:0})) });
-        } else if (firstCell === '점포코드') {
-          // 판매점별제품별조회 형식 매출
-          // 컬럼: 점포코드[0] 점포명[1] 상품코드[2] 소스코드(바코드)[3] 상품명[4] 규격[5] 판매수량[6] 원가합계[7] 매가합계[8] 구성비[9]
-          const codeMap = {};
-          for (let i = 1; i < rows.length; i++) {
-            const r = rows[i];
-            // 합계행 스킵: r[0]이 없거나 '합계', 또는 r[2]에 '합계' 포함
-            if (!r[0] || String(r[0]||'') === '합계' || String(r[2]||'').includes('합계')) continue;
-            const code = String(r[3] || '').trim(); // 소스코드(바코드)
-            if (!code.startsWith('88')) continue;
-            const qty = Number(String(r[6]||'').replace(/,/g,'')) || 0; // 판매수량
-            codeMap[code] = (codeMap[code]||0) + qty;
-          }
-          if (Object.keys(codeMap).length > 0)
-            results.push({ vendor: '메가마트', date: null, items: Object.entries(codeMap).map(([code,qty])=>({code,qty,amt:0})) });
         } else {
-          // 메가마트 매출 (기존 형식)
+          // 메가마트 매출
           const codeMap = {};
           for (let i = 1; i < rows.length; i++) {
             const r = rows[i];
@@ -1468,7 +1453,7 @@ async function detectAndParseFile(file, dataType = '매출') {
             if (!r[2] || String(r[1]||'').includes('합계') || String(r[0]||'') === '합계') continue;
             const code = String(r[2]).trim();
             if (!code.startsWith('88')) continue;
-            const qty = Number(r[7]) || 0;
+            const qty = (Number(r[6]) || 1) * (Number(r[7]) || 0); // 입수 × 수량
             const amt = Number(r[9]) || 0;
             // 전표번호 앞 8자리에서 날짜 추출
             if (!date) {
