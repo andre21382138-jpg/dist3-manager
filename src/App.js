@@ -1400,8 +1400,22 @@ async function detectAndParseFile(file, dataType = '매출') {
             results.push({ vendor: '이마트', date, items: Object.entries(emMap).map(([code,qty])=>({code,qty,amt:0})) });
           if (Object.keys(edMap).length > 0)
             results.push({ vendor: '에브리데이', date, items: Object.entries(edMap).map(([code,qty])=>({code,qty,amt:0})) });
+        } else if (firstCell === '점포코드') {
+          // 판매점별제품별조회 형식 매출
+          // 컬럼: 점포코드[0] 점포명[1] 상품코드[2] 소스코드(바코드)[3] 상품명[4] 규격[5] 판매수량[6] 원가합계[7] 매가합계[8] 구성비[9]
+          const codeMap = {};
+          for (let i = 1; i < rows.length; i++) {
+            const r = rows[i];
+            if (!r[0] || String(r[0]||'') === '합계' || String(r[2]||'').includes('합계')) continue;
+            const code = String(r[3] || '').trim();
+            if (!code.startsWith('88')) continue;
+            const qty = Number(String(r[6]||'').replace(/,/g,'')) || 0;
+            codeMap[code] = (codeMap[code]||0) + qty;
+          }
+          if (Object.keys(codeMap).length > 0)
+            results.push({ vendor: '메가마트', date: null, items: Object.entries(codeMap).map(([code,qty])=>({code,qty,amt:0})) });
         } else {
-          // 메가마트 매출
+          // 메가마트 매출 (기존 형식)
           const codeMap = {};
           for (let i = 1; i < rows.length; i++) {
             const r = rows[i];
