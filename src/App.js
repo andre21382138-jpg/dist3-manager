@@ -1414,6 +1414,36 @@ async function detectAndParseFile(file, dataType = '매출') {
           }
           if (Object.keys(codeMap).length > 0)
             results.push({ vendor: '메가마트', date: null, items: Object.entries(codeMap).map(([code,qty])=>({code,qty,amt:0})) });
+
+        } else if (firstCell === '상품 코드') {
+          // 이마트/에브리데이 일별집계 형식 (주말 다중날짜)
+          // 헤더: 상품코드[0] 상품명[1] N월M일[2] N월M일[3] ... 합계 평균
+          const header = rows[0];
+          const year = new Date().getFullYear();
+          // 날짜 컬럼 추출 (N월M일 패턴)
+          const dateCols = [];
+          for (let c = 2; c < header.length; c++) {
+            const cell = String(header[c] || '');
+            const m = cell.match(/(\d+)월\s*(\d+)일/);
+            if (!m) continue;
+            const dateStr = `${year}-${String(m[1]).padStart(2,'0')}-${String(m[2]).padStart(2,'0')}`;
+            dateCols.push({ col: c, date: dateStr });
+          }
+          // 날짜별로 codeMap 생성
+          for (const { col, date } of dateCols) {
+            const codeMap = {};
+            for (let i = 1; i < rows.length; i++) {
+              const r = rows[i];
+              const code = String(r[0] || '').trim();
+              if (!code.startsWith('88')) continue;
+              const qty = Number(r[col]) || 0;
+              if (qty === 0) continue;
+              codeMap[code] = (codeMap[code]||0) + qty;
+            }
+            if (Object.keys(codeMap).length > 0)
+              results.push({ vendor: null, date, items: Object.entries(codeMap).map(([code,qty])=>({code,qty,amt:0})) });
+          }
+
         } else {
           // 메가마트 매출 (기존 형식)
           const codeMap = {};
