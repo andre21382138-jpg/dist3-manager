@@ -1417,32 +1417,30 @@ async function detectAndParseFile(file, dataType = '매출') {
       } else {
         // 매입
         if (firstCell === '점포코드') {
-          // 이마트/에브리데이 매입 (엑셀저장 시트)
-          const emMap = {}, edMap = {};
-          const emAmt = {}, edAmt = {};
+          // 이마트/에브리데이 매입 - 납품일자(r[8]) + 업태(r[2]) 별로 그룹핑
+          // key: "날짜|업태"
+          const groupMap = {}; // key -> { codeMap, amtMap }
           for (let i = 1; i < rows.length; i++) {
             const r = rows[i];
             const code = String(r[6] || '').trim();
             if (!code.startsWith('88')) continue;
-            const bizType = String(r[2] || ''); // 업태명
-            const qty = Number(r[13]) || 0;     // 납품량
-            const amt = Number(r[15]) || 0;     // 납품금액
-            if (bizType.includes('이마트')) {
-              emMap[code] = (emMap[code]||0) + qty;
-              emAmt[code] = (emAmt[code]||0) + amt;
-            } else if (bizType.includes('에브리데이')) {
-              edMap[code] = (edMap[code]||0) + qty;
-              edAmt[code] = (edAmt[code]||0) + amt;
-            }
+            const bizType = String(r[2] || '');
+            const vendor = bizType.includes('이마트') ? '이마트' : bizType.includes('에브리데이') ? '에브리데이' : null;
+            if (!vendor) continue;
+            const rawDate = String(r[8] || '');
+            const date = rawDate.length === 8
+              ? `${rawDate.slice(0,4)}-${rawDate.slice(4,6)}-${rawDate.slice(6,8)}` : 'unknown';
+            const key = `${date}|${vendor}`;
+            if (!groupMap[key]) groupMap[key] = { vendor, date: date === 'unknown' ? null : date, codeMap: {}, amtMap: {} };
+            const qty = Number(r[13]) || 0;
+            const amt = Number(r[15]) || 0;
+            groupMap[key].codeMap[code] = (groupMap[key].codeMap[code]||0) + qty;
+            groupMap[key].amtMap[code]  = (groupMap[key].amtMap[code]||0)  + amt;
           }
-          // 날짜: 첫 데이터행 납품일자
-          const rawDate = String(rows[1]?.[8] || '');
-          const date = rawDate.length === 8
-            ? `${rawDate.slice(0,4)}-${rawDate.slice(4,6)}-${rawDate.slice(6,8)}` : null;
-          if (Object.keys(emMap).length > 0)
-            results.push({ vendor: '이마트', date, items: Object.entries(emMap).map(([code,qty])=>({code,qty,amt:emAmt[code]||0})) });
-          if (Object.keys(edMap).length > 0)
-            results.push({ vendor: '에브리데이', date, items: Object.entries(edMap).map(([code,qty])=>({code,qty,amt:edAmt[code]||0})) });
+          for (const { vendor, date, codeMap, amtMap } of Object.values(groupMap)) {
+            if (Object.keys(codeMap).length > 0)
+              results.push({ vendor, date, items: Object.entries(codeMap).map(([code,qty])=>({code,qty,amt:amtMap[code]||0})) });
+          }
 
         } else {
           // 메가마트 매입
@@ -1501,56 +1499,38 @@ async function detectAndParseFile(file, dataType = '매출') {
             items.push({ code, qty: Number(String(r[4]||'').replace(/,/g,''))||0, amt: 0 });
           }
         } else if (vendor === '홈플러스' || vendor === '익스프레스') {
-          // col: 유통채널[0] 상품코드(바코드)[1] TPNB[2] 상품명[3] 수량[4] or 날짜별수량[4][5][6]...
+          // col: 유통채널[0] 상품코드(바코드)[1] TPNB[2] 상품명[3] 수량[4]
+          // 테이블이 1개일 수도 있음
           const dataTable = tables.length > 1 ? tables[1] : tables[0];
-          const headerRow = dataTable[0] || [];
-          // 날짜 컬럼 감지: YYYY년MM월DD일 패턴
-          const dateCols = [];
-          for (let c = 4; c < headerRow.length; c++) {
-            const cell = String(headerRow[c] || '');
-            const m = cell.match(/(\d{4}).*?(\d{2}).*?(\d{2})/);
-            if (m) dateCols.push({ col: c, date: `${m[1]}-${m[2]}-${m[3]}` });
-          }
-          if (dateCols.length > 1) {
-            // 다중 날짜: 날짜별로 분리
-            for (const { col, date: colDate } of dateCols) {
-              const dayItems = [];
-              for (let i = 1; i < dataTable.length; i++) {
-                const r = dataTable[i];
-                if (r.length < col + 1) continue;
-                const code = String(r[1] || '').trim();
-                if (!code.match(/^\d{10,14}$/) || !code.startsWith('88')) continue;
-                const qty = Number(String(r[col]||'').replace(/,/g,'')) || 0;
-                if (qty === 0) continue;
-                dayItems.push({ code, qty, amt: 0 });
-              }
-              if (dayItems.length > 0)
-                results.push({ vendor, date: colDate, items: dayItems });
-            }
-          } else {
-            // 단일 날짜: 기존 방식
-            for (let i = 1; i < dataTable.length; i++) {
-              const r = dataTable[i];
-              if (r.length < 5) continue;
-              const code = String(r[1] || '').trim();
-              if (!code.match(/^\d{10,14}$/) || !code.startsWith('88')) continue;
-              items.push({ code, qty: Number(String(r[4]||'').replace(/,/g,''))||0, amt: 0 });
-            }
+          for (let i = 1; i < dataTable.length; i++) {
+            const r = dataTable[i];
+            if (r.length < 5) continue;
+            const code = String(r[1] || '').trim();
+            if (!code.match(/^\d{10,14}$/) || !code.startsWith('88')) continue;
+            items.push({ code, qty: Number(String(r[4]||'').replace(/,/g,''))||0, amt: 0 });
           }
         }
       } else {
         // 매입
         if (vendor === '롯데마트' || vendor === '롯데슈퍼') {
           // col: 매입일[0] 상품코드[1] 판매코드[2] 상품명[3] 규격[4] 매입구분[5] 주문수량[6] 주문금액[7] 박스[8] 낱개[9] 금액[10]
+          // 매입일(r[0])별로 그룹핑하여 날짜별 분리
           const dataTable = tables.length > 1 ? tables[1] : tables[0];
+          const dateGroupMap = {};
           for (let i = 1; i < dataTable.length; i++) {
             const r = dataTable[i];
-            const code = String(r[2] || '').trim(); // 판매코드(바코드)
+            const code = String(r[2] || '').trim();
             if (!code.startsWith('88')) continue;
-            const qty = Number(String(r[9]||'').replace(/,/g,'')) || 0; // 낱개수량
+            const qty = Number(String(r[9]||'').replace(/,/g,'')) || 0;
             const amt = Number(String(r[10]||'').replace(/,/g,'')) || 0;
-            // 날짜: 첫 행의 매입일
-            items.push({ code, qty, amt });
+            const rowDate = String(r[0] || '').trim(); // 매입일 (YYYY-MM-DD)
+            if (!dateGroupMap[rowDate]) dateGroupMap[rowDate] = { codeMap: {}, amtMap: {} };
+            dateGroupMap[rowDate].codeMap[code] = (dateGroupMap[rowDate].codeMap[code]||0) + qty;
+            dateGroupMap[rowDate].amtMap[code]  = (dateGroupMap[rowDate].amtMap[code]||0)  + amt;
+          }
+          for (const [rowDate, { codeMap, amtMap }] of Object.entries(dateGroupMap)) {
+            if (Object.keys(codeMap).length > 0)
+              results.push({ vendor, date: rowDate || date, items: Object.entries(codeMap).map(([code,qty])=>({code,qty,amt:amtMap[code]||0})) });
           }
         } else if (vendor === '홈플러스' || vendor === '익스프레스') {
           // col: 상품코드[0] TPNB[1] 상품명[2] 매입구분[3] 점포구분[4] 점포코드[5] 점포명[6] 수량[7] 금액[8]
