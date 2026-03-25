@@ -1400,8 +1400,50 @@ async function detectAndParseFile(file, dataType = '매출') {
             results.push({ vendor: '이마트', date, items: Object.entries(emMap).map(([code,qty])=>({code,qty,amt:0})) });
           if (Object.keys(edMap).length > 0)
             results.push({ vendor: '에브리데이', date, items: Object.entries(edMap).map(([code,qty])=>({code,qty,amt:0})) });
+        } else if (firstCell === '점포코드') {
+          // 판매점별제품별조회 형식 매출
+          // 컬럼: 점포코드[0] 점포명[1] 상품코드[2] 소스코드(바코드)[3] 상품명[4] 규격[5] 판매수량[6]
+          const codeMap = {};
+          for (let i = 1; i < rows.length; i++) {
+            const r = rows[i];
+            if (!r[0] || String(r[0]||'') === '합계' || String(r[2]||'').includes('합계')) continue;
+            const code = String(r[3] || '').trim();
+            if (!code.startsWith('88')) continue;
+            const qty = Number(String(r[6]||'').replace(/,/g,'')) || 0;
+            codeMap[code] = (codeMap[code]||0) + qty;
+          }
+          if (Object.keys(codeMap).length > 0)
+            results.push({ vendor: '메가마트', date: null, items: Object.entries(codeMap).map(([code,qty])=>({code,qty,amt:0})) });
+
+        } else if (firstCell === '상품 코드') {
+          // 이마트/에브리데이 일별집계 형식 (주말 다중날짜)
+          // 헤더: 상품코드[0] 상품명[1] N월M일[2]... 합계 평균
+          const header = rows[0];
+          const year = new Date().getFullYear();
+          const dateCols = [];
+          for (let c = 2; c < header.length; c++) {
+            const cell = String(header[c] || '');
+            const m = cell.match(/(\d+)월\s*(\d+)일/);
+            if (!m) continue;
+            const dateStr = `${year}-${String(m[1]).padStart(2,'0')}-${String(m[2]).padStart(2,'0')}`;
+            dateCols.push({ col: c, date: dateStr });
+          }
+          for (const { col, date: colDate } of dateCols) {
+            const codeMap = {};
+            for (let i = 1; i < rows.length; i++) {
+              const r = rows[i];
+              const code = String(r[0] || '').trim();
+              if (!code.startsWith('88')) continue;
+              const qty = Number(r[col]) || 0;
+              if (qty === 0) continue;
+              codeMap[code] = (codeMap[code]||0) + qty;
+            }
+            if (Object.keys(codeMap).length > 0)
+              results.push({ vendor: null, date: colDate, items: Object.entries(codeMap).map(([code,qty])=>({code,qty,amt:0})) });
+          }
+
         } else {
-          // 메가마트 매출
+          // 메가마트 매출 (기존 형식)
           const codeMap = {};
           for (let i = 1; i < rows.length; i++) {
             const r = rows[i];
@@ -1418,8 +1460,7 @@ async function detectAndParseFile(file, dataType = '매출') {
         // 매입
         if (firstCell === '점포코드') {
           // 이마트/에브리데이 매입 - 납품일자(r[8]) + 업태(r[2]) 별로 그룹핑
-          // key: "날짜|업태"
-          const groupMap = {}; // key -> { codeMap, amtMap }
+          const groupMap = {};
           for (let i = 1; i < rows.length; i++) {
             const r = rows[i];
             const code = String(r[6] || '').trim();
@@ -1451,7 +1492,7 @@ async function detectAndParseFile(file, dataType = '매출') {
             if (!r[2] || String(r[1]||'').includes('합계') || String(r[0]||'') === '합계') continue;
             const code = String(r[2]).trim();
             if (!code.startsWith('88')) continue;
-            const qty = Number(r[7]) || 0;
+            const qty = (Number(r[6]) || 1) * (Number(r[7]) || 0); // 입수 × 수량
             const amt = Number(r[9]) || 0;
             // 전표번호 앞 8자리에서 날짜 추출
             if (!date) {
@@ -1499,15 +1540,40 @@ async function detectAndParseFile(file, dataType = '매출') {
             items.push({ code, qty: Number(String(r[4]||'').replace(/,/g,''))||0, amt: 0 });
           }
         } else if (vendor === '홈플러스' || vendor === '익스프레스') {
-          // col: 유통채널[0] 상품코드(바코드)[1] TPNB[2] 상품명[3] 수량[4]
-          // 테이블이 1개일 수도 있음
+          // col: 유통채널[0] 상품코드(바코드)[1] TPNB[2] 상품명[3] 수량[4] or 날짜별[4][5][6]...
           const dataTable = tables.length > 1 ? tables[1] : tables[0];
-          for (let i = 1; i < dataTable.length; i++) {
-            const r = dataTable[i];
-            if (r.length < 5) continue;
-            const code = String(r[1] || '').trim();
-            if (!code.match(/^\d{10,14}$/) || !code.startsWith('88')) continue;
-            items.push({ code, qty: Number(String(r[4]||'').replace(/,/g,''))||0, amt: 0 });
+          const headerRow = dataTable[0] || [];
+          const dateCols = [];
+          for (let c = 4; c < headerRow.length; c++) {
+            const cell = String(headerRow[c] || '');
+            const m = cell.match(/(\d{4}).*?(\d{2}).*?(\d{2})/);
+            if (m) dateCols.push({ col: c, date: `${m[1]}-${m[2]}-${m[3]}` });
+          }
+          if (dateCols.length > 1) {
+            // 다중 날짜: 날짜별로 분리
+            for (const { col, date: colDate } of dateCols) {
+              const dayItems = [];
+              for (let i = 1; i < dataTable.length; i++) {
+                const r = dataTable[i];
+                if (r.length < col + 1) continue;
+                const code = String(r[1] || '').trim();
+                if (!code.match(/^\d{10,14}$/) || !code.startsWith('88')) continue;
+                const qty = Number(String(r[col]||'').replace(/,/g,'')) || 0;
+                if (qty === 0) continue;
+                dayItems.push({ code, qty, amt: 0 });
+              }
+              if (dayItems.length > 0)
+                results.push({ vendor, date: colDate, items: dayItems });
+            }
+          } else {
+            // 단일 날짜: 기존 방식
+            for (let i = 1; i < dataTable.length; i++) {
+              const r = dataTable[i];
+              if (r.length < 5) continue;
+              const code = String(r[1] || '').trim();
+              if (!code.match(/^\d{10,14}$/) || !code.startsWith('88')) continue;
+              items.push({ code, qty: Number(String(r[4]||'').replace(/,/g,''))||0, amt: 0 });
+            }
           }
         }
       } else {
@@ -1523,7 +1589,7 @@ async function detectAndParseFile(file, dataType = '매출') {
             if (!code.startsWith('88')) continue;
             const qty = Number(String(r[9]||'').replace(/,/g,'')) || 0;
             const amt = Number(String(r[10]||'').replace(/,/g,'')) || 0;
-            const rowDate = String(r[0] || '').trim(); // 매입일 (YYYY-MM-DD)
+            const rowDate = String(r[0] || '').trim();
             if (!dateGroupMap[rowDate]) dateGroupMap[rowDate] = { codeMap: {}, amtMap: {} };
             dateGroupMap[rowDate].codeMap[code] = (dateGroupMap[rowDate].codeMap[code]||0) + qty;
             dateGroupMap[rowDate].amtMap[code]  = (dateGroupMap[rowDate].amtMap[code]||0)  + amt;
