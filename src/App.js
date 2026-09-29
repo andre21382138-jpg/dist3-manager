@@ -12,6 +12,24 @@ const supabase = createClient(
 
 const VENDORS = ['홈플러스', '익스프레스', '롯데마트', '롯데슈퍼', '메가마트', '이마트', '에브리데이', '농협'];
 
+/* ─── 전역 데이터 변경 알림 (업로드/삭제 후 대시보드 자동 갱신용) ─── */
+const DATA_CHANGED_EVENT = 'app:data-changed';
+function fireDataChanged(scope) {
+  window.dispatchEvent(new CustomEvent(DATA_CHANGED_EVENT, { detail: { scope } }));
+}
+function useDataChanged(scope, callback) {
+  const cbRef = useRef(callback);
+  cbRef.current = callback;
+  useEffect(() => {
+    function handler(e) {
+      const s = e.detail?.scope;
+      if (!scope || s === scope || s === 'all') cbRef.current?.();
+    }
+    window.addEventListener(DATA_CHANGED_EVENT, handler);
+    return () => window.removeEventListener(DATA_CHANGED_EVENT, handler);
+  }, [scope]);
+}
+
 const VENDOR_COLORS = {
   '홈플러스':  '#0068b7',
   '익스프레스':'#00a550',
@@ -1198,6 +1216,9 @@ function NoticeBoard({ profile }) {
 function VendorSummaryCard({ type, metric, color, bgColor }) {
   const [data, setData]     = useState([]);
   const [loading, setLoading] = useState(true);
+  const [version, setVersion] = useState(0);
+
+  useDataChanged(type === '매입' ? 'purchase' : 'sales', () => setVersion(v => v + 1));
 
   useEffect(() => {
     const now     = new Date();
@@ -1249,7 +1270,7 @@ function VendorSummaryCard({ type, metric, color, bgColor }) {
       setLoading(false);
     }
     load();
-  }, [type, metric]);
+  }, [type, metric, version]);
 
   const total = data.reduce((s, d) => s + d.value, 0);
   const isMoney = metric === '매출액' || metric === '공급가';
@@ -2135,6 +2156,7 @@ function PurchaseDataView({ refreshKey }) {
         if (error) throw error;
       }
       await loadData();
+      fireDataChanged('purchase');
     } catch (e) {
       alert(`삭제 실패: ${e.message}`);
     } finally {
