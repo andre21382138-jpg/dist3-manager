@@ -2059,6 +2059,7 @@ function PurchaseDataView({ refreshKey }) {
   const [filterDateTo, setFilterDateTo]     = useState('');
   const [selected, setSelected]     = useState(new Set());
   const [downloading, setDownloading] = useState(false);
+  const [deleting, setDeleting]     = useState(false);
 
   useEffect(() => { loadData(); }, [filterVendor, filterDateFrom, filterDateTo, refreshKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -2122,6 +2123,25 @@ function PurchaseDataView({ refreshKey }) {
     setDownloading(false);
   }
 
+  async function handleDelete() {
+    if (!selected.size) return;
+    if (!window.confirm(`선택한 ${selected.size}개 항목을 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.`)) return;
+    setDeleting(true);
+    try {
+      const ids = [...selected];
+      const CHUNK = 500;
+      for (let i = 0; i < ids.length; i += CHUNK) {
+        const { error } = await supabase.from('purchase_data').delete().in('id', ids.slice(i, i + CHUNK));
+        if (error) throw error;
+      }
+      await loadData();
+    } catch (e) {
+      alert(`삭제 실패: ${e.message}`);
+    } finally {
+      setDeleting(false);
+    }
+  }
+
   const fmt = n => n ? Math.round(n).toLocaleString() : '-';
   const totals = rows.reduce((acc, r) => ({
     qty: acc.qty + (r.quantity || 0),
@@ -2169,12 +2189,17 @@ function PurchaseDataView({ refreshKey }) {
           {selected.size > 0 && <span style={{ fontSize:13, color:'var(--gray3)' }}>{selected.size}개 선택</span>}
           {selected.size > 0 && (
             <button className="btn btn-sm" style={{ background:'#2563eb', color:'white' }}
-              disabled={downloading} onClick={() => handleDownload(selected)}>
+              disabled={downloading || deleting} onClick={() => handleDownload(selected)}>
               {downloading ? <span className="loading-spinner" /> : <><Icon name="download" style={{ width:14,height:14 }} /> 선택 다운로드</>}
             </button>
           )}
+          {selected.size > 0 && (
+            <button className="btn btn-sm btn-danger" disabled={downloading || deleting} onClick={handleDelete}>
+              {deleting ? <span className="loading-spinner" style={{ borderColor:'rgba(239,68,68,.3)', borderTopColor:'#ef4444' }} /> : '🗑 선택 삭제'}
+            </button>
+          )}
           {rows.length > 0 && (
-            <button className="btn btn-sm btn-blue-light" disabled={downloading}
+            <button className="btn btn-sm btn-blue-light" disabled={downloading || deleting}
               onClick={() => handleDownload(new Set(rows.map(r => r.id)))}>
               전체 다운로드
             </button>
