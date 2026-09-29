@@ -173,3 +173,17 @@ CREATE POLICY "승인된 사용자 상품 수정"
   WITH CHECK (
     EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND approved = TRUE)
   );
+
+
+-- ============================================================
+-- 6. purchase_data 테이블 DELETE 정책 (승인된 사용자 모두 삭제 허용)
+-- 매입 데이터 조회 화면의 '선택 삭제' 버튼용
+-- 기존 admin/본인 업로더 정책과 함께 OR로 평가됨
+-- ============================================================
+
+DROP POLICY IF EXISTS "승인된 사용자 매입 삭제" ON purchase_data;
+CREATE POLICY "승인된 사용자 매입 삭제"
+  ON purchase_data FOR DELETE
+  USING (
+    EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND approved = TRUE)
+  );
