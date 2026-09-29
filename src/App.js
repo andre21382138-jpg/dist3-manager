@@ -2457,9 +2457,22 @@ function ProductsPage() {
   const [uploading, setUploading] = useState(false);
   const [msg, setMsg]             = useState(null);
   const [search, setSearch]       = useState('');
+  const [editor, setEditor]       = useState(null); // { mode:'create'|'edit', product }
   const fileRef                   = useRef();
 
   useEffect(() => { loadProducts(); }, []);
+
+  function openNew() {
+    setEditor({ mode: 'create', product: {
+      product_code: '', product_name: '', brand: '',
+      category_1: '', category_2: '', category_3: '',
+      final_cost: '', normal_price: '', sale_price: '',
+      is_active: true,
+    }});
+  }
+  function openEdit(p) {
+    setEditor({ mode: 'edit', product: { ...p } });
+  }
 
   async function loadProducts() {
     setLoading(true);
@@ -2554,6 +2567,9 @@ function ProductsPage() {
       <div className="filter-bar">
         <input className="filter-select" placeholder="상품코드, 상품명, 브랜드 검색" value={search}
           onChange={e => setSearch(e.target.value)} style={{ minWidth: 240 }} />
+        <button className="btn btn-sm" style={{ background:'var(--blue)', color:'white' }} onClick={openNew}>
+          + 상품 추가
+        </button>
         <span style={{ fontSize:13, color:'var(--gray3)', marginLeft:'auto' }}>
           총 <strong style={{ color:'var(--navy)' }}>{filtered.length}</strong>개
         </span>
@@ -2580,7 +2596,7 @@ function ProductsPage() {
             </thead>
             <tbody>
               {filtered.map(p => (
-                <tr key={p.product_code}>
+                <tr key={p.product_code} style={{ cursor:'pointer' }} onClick={() => openEdit(p)}>
                   <td style={{ fontSize:12, fontFamily:'monospace' }}>{p.product_code}</td>
                   <td style={{ fontSize:13 }}>{p.brand || '-'}</td>
                   <td style={{ fontSize:13, maxWidth:260, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{p.product_name || '-'}</td>
@@ -2594,6 +2610,171 @@ function ProductsPage() {
             </tbody>
           </table>
         )}
+      </div>
+
+      {editor && (
+        <ProductEditorModal
+          mode={editor.mode}
+          initial={editor.product}
+          existingCodes={products.map(p => p.product_code)}
+          onClose={() => setEditor(null)}
+          onSaved={() => { setEditor(null); loadProducts(); }}
+        />
+      )}
+    </div>
+  );
+}
+
+/* ─── 상품 등록/수정 모달 ─── */
+function ProductEditorModal({ mode, initial, existingCodes, onClose, onSaved }) {
+  const [form, setForm]       = useState(initial);
+  const [saving, setSaving]   = useState(false);
+  const [error, setError]     = useState(null);
+  const isEdit = mode === 'edit';
+
+  function setField(key, val) {
+    setForm(prev => ({ ...prev, [key]: val }));
+  }
+
+  async function handleSave() {
+    setError(null);
+
+    const code = String(form.product_code || '').trim();
+    if (!code) return setError('상품코드를 입력하세요.');
+    if (!code.startsWith('88')) return setError('상품코드는 88로 시작해야 합니다.');
+    if (!form.product_name || !String(form.product_name).trim()) return setError('상품명을 입력하세요.');
+
+    if (!isEdit && existingCodes.includes(code)) {
+      return setError('이미 등록된 상품코드입니다.');
+    }
+
+    const num = v => (v === '' || v === null || v === undefined) ? null : (Number(v) || null);
+
+    const row = {
+      product_code: code,
+      product_name: String(form.product_name).trim(),
+      brand:        form.brand ? String(form.brand).trim() : null,
+      category_1:   form.category_1 ? String(form.category_1).trim() : null,
+      category_2:   form.category_2 ? String(form.category_2).trim() : null,
+      category_3:   form.category_3 ? String(form.category_3).trim() : null,
+      final_cost:   num(form.final_cost),
+      normal_price: num(form.normal_price),
+      sale_price:   num(form.sale_price),
+      is_active:    !!form.is_active,
+      updated_at:   new Date().toISOString(),
+    };
+
+    setSaving(true);
+    try {
+      const { error: e } = await supabase.from('products').upsert(row, { onConflict: 'product_code' });
+      if (e) throw e;
+      onSaved();
+    } catch (err) {
+      setError(err.message || '저장 중 오류가 발생했습니다.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const overlay = {
+    position:'fixed', inset:0, background:'rgba(15,23,42,.5)',
+    display:'flex', alignItems:'center', justifyContent:'center',
+    zIndex:1000, padding:16,
+  };
+  const panel = {
+    background:'var(--white)', borderRadius:12, width:'100%', maxWidth:560,
+    maxHeight:'90vh', overflow:'auto', padding:24,
+    boxShadow:'0 20px 40px rgba(0,0,0,.2)',
+  };
+  const twoCol = { display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 };
+
+  return (
+    <div style={overlay} onClick={onClose}>
+      <div style={panel} onClick={e => e.stopPropagation()}>
+        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:18 }}>
+          <div style={{ fontSize:18, fontWeight:700, color:'var(--navy)' }}>
+            {isEdit ? '상품 수정' : '새 상품 등록'}
+          </div>
+          <button className="btn btn-sm btn-outline" onClick={onClose}>✕</button>
+        </div>
+
+        {error && <div className="alert alert-error">{error}</div>}
+
+        <div className="form-group">
+          <label className="form-label">상품코드 * (88로 시작)</label>
+          <input className="form-input" value={form.product_code || ''}
+            disabled={isEdit}
+            onChange={e => setField('product_code', e.target.value)}
+            placeholder="8800000000000" />
+        </div>
+
+        <div className="form-group">
+          <label className="form-label">상품명 *</label>
+          <input className="form-input" value={form.product_name || ''}
+            onChange={e => setField('product_name', e.target.value)} />
+        </div>
+
+        <div className="form-group">
+          <label className="form-label">브랜드</label>
+          <input className="form-input" value={form.brand || ''}
+            onChange={e => setField('brand', e.target.value)} />
+        </div>
+
+        <div style={twoCol}>
+          <div className="form-group">
+            <label className="form-label">분류_1</label>
+            <input className="form-input" value={form.category_1 || ''}
+              onChange={e => setField('category_1', e.target.value)} />
+          </div>
+          <div className="form-group">
+            <label className="form-label">분류_2</label>
+            <input className="form-input" value={form.category_2 || ''}
+              onChange={e => setField('category_2', e.target.value)} />
+          </div>
+        </div>
+
+        <div className="form-group">
+          <label className="form-label">분류_3</label>
+          <input className="form-input" value={form.category_3 || ''}
+            onChange={e => setField('category_3', e.target.value)} />
+        </div>
+
+        <div style={twoCol}>
+          <div className="form-group">
+            <label className="form-label">최종원가</label>
+            <input className="form-input" type="number" value={form.final_cost ?? ''}
+              onChange={e => setField('final_cost', e.target.value)} />
+          </div>
+          <div className="form-group">
+            <label className="form-label">정상판매가</label>
+            <input className="form-input" type="number" value={form.normal_price ?? ''}
+              onChange={e => setField('normal_price', e.target.value)} />
+          </div>
+        </div>
+
+        <div className="form-group">
+          <label className="form-label">행사판매가</label>
+          <input className="form-input" type="number" value={form.sale_price ?? ''}
+            onChange={e => setField('sale_price', e.target.value)} />
+        </div>
+
+        <div className="form-group">
+          <label style={{ display:'flex', alignItems:'center', gap:8, fontSize:14, cursor:'pointer' }}>
+            <input type="checkbox" checked={!!form.is_active}
+              onChange={e => setField('is_active', e.target.checked)} />
+            운영 중
+          </label>
+        </div>
+
+        <div style={{ display:'flex', gap:10, marginTop:8 }}>
+          <button className="btn btn-outline" style={{ flex:1 }} onClick={onClose} disabled={saving}>
+            취소
+          </button>
+          <button className="btn" style={{ flex:1, background:'var(--blue)', color:'white' }}
+            onClick={handleSave} disabled={saving}>
+            {saving ? '저장 중...' : (isEdit ? '수정 저장' : '등록')}
+          </button>
+        </div>
       </div>
     </div>
   );
