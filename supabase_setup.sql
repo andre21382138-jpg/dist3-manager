@@ -147,3 +147,29 @@ CREATE POLICY "파일 삭제"
   ON storage.objects FOR DELETE
   TO authenticated
   USING (bucket_id = 'excel-uploads');
+
+
+-- ============================================================
+-- 5. products 테이블 RLS 정책 (승인된 사용자 등록/수정 허용)
+-- 상품DB 페이지의 웹 등록/수정 및 엑셀 업로드에서 사용
+-- 기존 admin 전용 정책과 함께 OR로 평가됨
+-- ============================================================
+
+ALTER TABLE products ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "승인된 사용자 상품 등록" ON products;
+CREATE POLICY "승인된 사용자 상품 등록"
+  ON products FOR INSERT
+  WITH CHECK (
+    EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND approved = TRUE)
+  );
+
+DROP POLICY IF EXISTS "승인된 사용자 상품 수정" ON products;
+CREATE POLICY "승인된 사용자 상품 수정"
+  ON products FOR UPDATE
+  USING (
+    EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND approved = TRUE)
+  )
+  WITH CHECK (
+    EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND approved = TRUE)
+  );
