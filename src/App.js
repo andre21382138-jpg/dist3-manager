@@ -2874,6 +2874,8 @@ function SalesReportPage() {
   const [dateTo, setDateTo]     = useState(initial.to);
   const [preset, setPreset]     = useState('this');
   const [view, setView]         = useState('vendor');
+  const [productVendor, setProductVendor] = useState(''); // 상품별 순위 판매처 ('' = 전체)
+  const [rankBy, setRankBy]     = useState('amount');     // 순위 기준: amount | quantity
   const [rows, setRows]         = useState([]);
   const [loading, setLoading]   = useState(true);
   const [error, setError]       = useState('');
@@ -2935,16 +2937,26 @@ function SalesReportPage() {
     return acc;
   }, {})).sort((a, b) => b.amount - a.amount);
 
-  const byProduct = Object.values(rows.reduce((acc, r) => {
+  // 상품별 순위: 판매처 선택 시 해당 판매처 행만 집계
+  const productRows = productVendor ? rows.filter(r => r.vendor === productVendor) : rows;
+  const productTotal = productRows.reduce((s, r) => s + r.amount, 0);
+  const byProduct = Object.values(productRows.reduce((acc, r) => {
     const a = acc[r.product_code] || (acc[r.product_code] = {
       product_code: r.product_code, product_name: r.product_name, brand: r.brand, quantity: 0, amount: 0,
     });
     a.quantity += r.quantity; a.amount += r.amount;
     return acc;
-  }, {})).sort((a, b) => b.amount - a.amount);
+  }, {})).sort((a, b) => rankBy === 'quantity'
+    ? (b.quantity - a.quantity) || (b.amount - a.amount)
+    : (b.amount - a.amount) || (b.quantity - a.quantity));
 
   const fmtWon = n => Math.round(n).toLocaleString() + '원';
-  const pctOf  = n => totalAmount > 0 ? (n / totalAmount * 100).toFixed(1) : '0.0';
+  const pctOf  = (n, base = totalAmount) => base > 0 ? (n / base * 100).toFixed(1) : '0.0';
+
+  function showVendorRanking(vendor) {
+    setProductVendor(vendor);
+    setView('product');
+  }
   const invalidRange = dateFrom && dateTo && dateFrom > dateTo;
 
   return (
@@ -2995,7 +3007,7 @@ function SalesReportPage() {
           <Icon name="history" style={{width:15,height:15}} /> 날짜별
         </button>
         <button className={`admin-tab ${view==='product'?'active':''}`} onClick={() => setView('product')}>
-          <Icon name="grid" style={{width:15,height:15}} /> 상품별
+          <Icon name="grid" style={{width:15,height:15}} /> 상품별 순위
         </button>
       </div>
 
@@ -3055,11 +3067,13 @@ function SalesReportPage() {
               </thead>
               <tbody>
                 {byVendor.map(v => (
-                  <tr key={v.vendor}>
+                  <tr key={v.vendor} style={{ cursor:'pointer' }} title="클릭하면 상품별 판매순위를 봅니다"
+                    onClick={() => showVendorRanking(v.vendor)}>
                     <td>
                       <span style={{ display:'inline-flex', alignItems:'center', gap:5 }}>
                         <span className="vendor-dot" style={{ background:VENDOR_COLORS[v.vendor]||'#94a3b8' }} />
                         {v.vendor}
+                        <span style={{ fontSize:11, color:'var(--blue)', marginLeft:4 }}>순위 ›</span>
                       </span>
                     </td>
                     <td style={{ textAlign:'right' }}>{v.quantity.toLocaleString()}</td>
@@ -3077,29 +3091,65 @@ function SalesReportPage() {
             </table>
           </div>
         ) : (
-          <div style={{ overflowX:'auto' }}>
-            <table style={{ minWidth:640 }}>
-              <thead>
-                <tr>
-                  <th>브랜드</th>
-                  <th>상품명</th>
-                  <th style={{ textAlign:'right' }}>판매수량</th>
-                  <th style={{ textAlign:'right' }}>매출액</th>
-                  <th style={{ textAlign:'right' }}>비중</th>
-                </tr>
-              </thead>
-              <tbody>
-                {byProduct.map(p => (
-                  <tr key={p.product_code}>
-                    <td style={{ fontSize:13 }}>{p.brand}</td>
-                    <td style={{ fontSize:13, maxWidth:260, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{p.product_name}</td>
-                    <td style={{ textAlign:'right' }}>{p.quantity.toLocaleString()}</td>
-                    <td style={{ textAlign:'right', fontWeight:600 }}>{fmtWon(p.amount)}</td>
-                    <td style={{ textAlign:'right', color:'var(--gray4)' }}>{pctOf(p.amount)}%</td>
-                  </tr>
+          <div>
+            {/* 판매처 선택 + 순위 기준 */}
+            <div style={{ display:'flex', flexWrap:'wrap', alignItems:'center', justifyContent:'space-between', gap:10, padding:'14px 16px', borderBottom:'1px solid var(--gray2)' }}>
+              <div style={{ display:'flex', flexWrap:'wrap', gap:6 }}>
+                {['', ...byVendor.map(v => v.vendor)].map(v => {
+                  const active = productVendor === v;
+                  const c = v ? (VENDOR_COLORS[v] || '#94a3b8') : 'var(--navy)';
+                  return (
+                    <button key={v || 'all'} onClick={() => setProductVendor(v)}
+                      style={{
+                        padding:'5px 12px', borderRadius:20, fontSize:12, fontWeight:500, cursor:'pointer',
+                        border:`1.5px solid ${active ? c : 'var(--gray2)'}`,
+                        background: active ? c : 'white', color: active ? 'white' : 'var(--gray4)',
+                      }}>
+                      {v || '전체'}
+                    </button>
+                  );
+                })}
+              </div>
+              <div style={{ display:'flex', alignItems:'center', gap:6, fontSize:12, color:'var(--gray3)' }}>
+                순위 기준
+                {[{ id:'amount', label:'매출액' }, { id:'quantity', label:'수량' }].map(o => (
+                  <button key={o.id} className={`btn btn-sm ${rankBy===o.id ? '' : 'btn-outline'}`}
+                    style={{ padding:'3px 10px', fontSize:12, ...(rankBy===o.id ? { background:'var(--navy)', color:'white' } : {}) }}
+                    onClick={() => setRankBy(o.id)}>{o.label}</button>
                 ))}
-              </tbody>
-            </table>
+              </div>
+            </div>
+
+            {byProduct.length === 0 ? (
+              <div className="empty-state"><p>{productVendor} 매출 데이터가 없습니다.</p></div>
+            ) : (
+              <div style={{ overflowX:'auto' }}>
+                <table style={{ minWidth:680 }}>
+                  <thead>
+                    <tr>
+                      <th style={{ width:56, textAlign:'center' }}>순위</th>
+                      <th>브랜드</th>
+                      <th>상품명</th>
+                      <th style={{ textAlign:'right' }}>수량</th>
+                      <th style={{ textAlign:'right' }}>매출액</th>
+                      <th style={{ textAlign:'right' }}>비중</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {byProduct.map((p, i) => (
+                      <tr key={p.product_code}>
+                        <td style={{ textAlign:'center', fontWeight:700, color: i < 3 ? '#f59e0b' : 'var(--gray4)' }}>{i + 1}</td>
+                        <td style={{ fontSize:13 }}>{p.brand}</td>
+                        <td style={{ fontSize:13, maxWidth:260, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{p.product_name}</td>
+                        <td style={{ textAlign:'right' }}>{p.quantity.toLocaleString()}</td>
+                        <td style={{ textAlign:'right', fontWeight:600 }}>{fmtWon(p.amount)}</td>
+                        <td style={{ textAlign:'right', color:'var(--gray4)' }}>{pctOf(p.amount, productTotal)}%</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         )}
       </div>
