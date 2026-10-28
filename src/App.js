@@ -865,6 +865,9 @@ function Sidebar({ profile, currentPage, onNavigate, onLogout }) {
 
       <nav className="sidebar-nav">
         <div className="nav-section-label">메인</div>
+        <button className={`nav-item ${currentPage==='sales-report' ? 'active' : ''}`} onClick={() => onNavigate('sales-report')}>
+          <Icon name="chart" /> 매출조회
+        </button>
         <button className={`nav-item ${currentPage==='home' ? 'active' : ''}`} onClick={() => onNavigate('home')}>
           <Icon name="home" /> 홈
         </button>
@@ -2839,6 +2842,271 @@ function ProductEditorModal({ mode, initial, existingCodes, onClose, onSaved }) 
   );
 }
 
+/* ─── 전체 행 조회 (Supabase 1000행 제한 회피) ─────────────────────── */
+async function fetchAllRows(buildQuery, pageSize = 1000) {
+  let all = [];
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await buildQuery().range(from, from + pageSize - 1);
+    if (error) throw error;
+    all = all.concat(data || []);
+    if (!data || data.length < pageSize) break;
+  }
+  return all;
+}
+
+function toDateStr(d) {
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+
+function monthRange(offset = 0) {
+  const now = new Date();
+  const first = new Date(now.getFullYear(), now.getMonth() + offset, 1);
+  const last  = new Date(now.getFullYear(), now.getMonth() + offset + 1, 0);
+  return { from: toDateStr(first), to: toDateStr(last) };
+}
+
+/* ─── SALES REPORT PAGE (매출조회) ──────────────────────────────────────
+   판매처가 우리에게서 매입한 내역(purchase_data)이 곧 우리 매출이므로
+   매입 업로드 데이터를 판매처/날짜/상품별로 집계한다. */
+function SalesReportPage() {
+  const initial = monthRange(0);
+  const [dateFrom, setDateFrom] = useState(initial.from);
+  const [dateTo, setDateTo]     = useState(initial.to);
+  const [preset, setPreset]     = useState('this');
+  const [view, setView]         = useState('vendor');
+  const [rows, setRows]         = useState([]);
+  const [loading, setLoading]   = useState(true);
+  const [error, setError]       = useState('');
+  const [version, setVersion]   = useState(0);
+
+  useDataChanged('purchase', () => setVersion(v => v + 1));
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      setLoading(true); setError('');
+      try {
+        const [sales, prods] = await Promise.all([
+          fetchAllRows(() => supabase.from('purchase_data')
+            .select('vendor, date, product_code, quantity, amount')
+            .gte('date', dateFrom).lte('date', dateTo).order('id')),
+          fetchAllRows(() => supabase.from('products')
+            .select('product_code, product_name, brand').order('product_code')),
+        ]);
+        const pMap = {};
+        prods.forEach(p => { pMap[p.product_code] = p; });
+        const joined = sales.map(s => {
+          const p = pMap[s.product_code] || {};
+          return {
+            vendor: s.vendor, date: s.date, product_code: s.product_code,
+            product_name: p.product_name || s.product_code, brand: p.brand || '-',
+            quantity: s.quantity || 0, amount: s.amount || 0,
+          };
+        });
+        if (!cancelled) setRows(joined);
+      } catch (e) {
+        if (!cancelled) { setRows([]); setError(e.message || '조회 중 오류가 발생했습니다.'); }
+      }
+      if (!cancelled) setLoading(false);
+    }
+    if (dateFrom && dateTo && dateFrom <= dateTo) load();
+    return () => { cancelled = true; };
+  }, [dateFrom, dateTo, version]);
+
+  function applyPreset(p) {
+    setPreset(p);
+    if (p === 'this' || p === 'last') {
+      const r = monthRange(p === 'this' ? 0 : -1);
+      setDateFrom(r.from); setDateTo(r.to);
+    }
+  }
+
+  const totalAmount = rows.reduce((s, r) => s + r.amount, 0);
+  const totalQty    = rows.reduce((s, r) => s + r.quantity, 0);
+  const byDate = Object.values(rows.reduce((acc, r) => {
+    const a = acc[r.date] || (acc[r.date] = { date: r.date, quantity: 0, amount: 0, vendors: new Set() });
+    a.quantity += r.quantity; a.amount += r.amount; a.vendors.add(r.vendor);
+    return acc;
+  }, {})).sort((a, b) => b.date.localeCompare(a.date));
+
+  const byVendor = Object.values(rows.reduce((acc, r) => {
+    const a = acc[r.vendor] || (acc[r.vendor] = { vendor: r.vendor, quantity: 0, amount: 0 });
+    a.quantity += r.quantity; a.amount += r.amount;
+    return acc;
+  }, {})).sort((a, b) => b.amount - a.amount);
+
+  const byProduct = Object.values(rows.reduce((acc, r) => {
+    const a = acc[r.product_code] || (acc[r.product_code] = {
+      product_code: r.product_code, product_name: r.product_name, brand: r.brand, quantity: 0, amount: 0,
+    });
+    a.quantity += r.quantity; a.amount += r.amount;
+    return acc;
+  }, {})).sort((a, b) => b.amount - a.amount);
+
+  const fmtWon = n => Math.round(n).toLocaleString() + '원';
+  const pctOf  = n => totalAmount > 0 ? (n / totalAmount * 100).toFixed(1) : '0.0';
+  const invalidRange = dateFrom && dateTo && dateFrom > dateTo;
+
+  return (
+    <div>
+      <div className="page-header">
+        <div className="page-title">매출조회</div>
+        <div className="page-sub">매입 업로드 자료 기준 판매처·날짜·상품별 매출 현황</div>
+      </div>
+
+      {/* 기간 선택 */}
+      <div className="card" style={{ marginBottom:20 }}>
+        <label className="form-label">조회기간</label>
+        <div style={{ display:'flex', flexWrap:'wrap', alignItems:'center', gap:8 }}>
+          {[{ id:'this', label:'당월' }, { id:'last', label:'전월' }].map(p => (
+            <button key={p.id} className={`btn btn-sm ${preset===p.id ? '' : 'btn-outline'}`}
+              style={preset===p.id ? { background:'var(--navy)', color:'white' } : undefined}
+              onClick={() => applyPreset(p.id)}>{p.label}</button>
+          ))}
+          <input type="date" className="form-input" style={{ width:160 }} value={dateFrom}
+            onChange={e => { setPreset('custom'); setDateFrom(e.target.value); }} />
+          <span style={{ color:'var(--gray3)' }}>~</span>
+          <input type="date" className="form-input" style={{ width:160 }} value={dateTo}
+            onChange={e => { setPreset('custom'); setDateTo(e.target.value); }} />
+        </div>
+        {invalidRange && <div style={{ marginTop:8, fontSize:12, color:'var(--red)' }}>시작일이 종료일보다 늦습니다.</div>}
+      </div>
+
+      {/* 합계 카드 */}
+      <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(160px, 1fr))', gap:12, marginBottom:20 }}>
+        {[
+          { label:'총 매출액',   value: loading ? '…' : fmtWon(totalAmount), color:'#22c55e' },
+          { label:'총 판매수량', value: loading ? '…' : totalQty.toLocaleString() + ' EA', color:'#2563eb' },
+          { label:'판매처 수',   value: loading ? '…' : byVendor.length + '곳', color:'#a855f7' },
+        ].map(s => (
+          <div key={s.label} style={{ background:'white', borderRadius:10, padding:'16px 20px', boxShadow:'var(--shadow)', borderTop:`3px solid ${s.color}` }}>
+            <div style={{ fontSize:12, color:'var(--gray3)', marginBottom:6 }}>{s.label}</div>
+            <div style={{ fontSize:18, fontWeight:700, color:s.color }}>{s.value}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* 보기 전환 */}
+      <div className="admin-tabs" style={{ marginBottom:16 }}>
+        <button className={`admin-tab ${view==='vendor'?'active':''}`} onClick={() => setView('vendor')}>
+          <Icon name="building" style={{width:15,height:15}} /> 판매처별
+        </button>
+        <button className={`admin-tab ${view==='date'?'active':''}`} onClick={() => setView('date')}>
+          <Icon name="history" style={{width:15,height:15}} /> 날짜별
+        </button>
+        <button className={`admin-tab ${view==='product'?'active':''}`} onClick={() => setView('product')}>
+          <Icon name="grid" style={{width:15,height:15}} /> 상품별
+        </button>
+      </div>
+
+      <div className="table-wrap">
+        {loading ? (
+          <div style={{ textAlign:'center', padding:40, color:'var(--gray3)', fontSize:13 }}>불러오는 중...</div>
+        ) : error ? (
+          <div style={{ textAlign:'center', padding:40, color:'var(--red)', fontSize:13 }}>{error}</div>
+        ) : rows.length === 0 ? (
+          <div className="empty-state"><Icon name="chart" style={{ width:48,height:48 }} /><p>해당 기간의 매출 데이터가 없습니다.</p></div>
+        ) : view === 'date' ? (
+          <div style={{ overflowX:'auto' }}>
+            <table>
+              <thead>
+                <tr>
+                  <th>날짜</th>
+                  <th>판매처</th>
+                  <th style={{ textAlign:'right' }}>수량</th>
+                  <th style={{ textAlign:'right' }}>매출액</th>
+                </tr>
+              </thead>
+              <tbody>
+                {byDate.map(d => (
+                  <tr key={d.date}>
+                    <td style={{ fontVariantNumeric:'tabular-nums', whiteSpace:'nowrap' }}>{d.date}</td>
+                    <td style={{ fontSize:13 }}>
+                      <span style={{ display:'inline-flex', flexWrap:'wrap', gap:8 }}>
+                        {[...d.vendors].map(v => (
+                          <span key={v} style={{ display:'inline-flex', alignItems:'center', gap:4 }}>
+                            <span className="vendor-dot" style={{ background:VENDOR_COLORS[v]||'#94a3b8' }} />{v}
+                          </span>
+                        ))}
+                      </span>
+                    </td>
+                    <td style={{ textAlign:'right' }}>{d.quantity.toLocaleString()}</td>
+                    <td style={{ textAlign:'right', fontWeight:600 }}>{fmtWon(d.amount)}</td>
+                  </tr>
+                ))}
+                <tr style={{ background:'var(--gray1)', fontWeight:700 }}>
+                  <td colSpan={2}>합계</td>
+                  <td style={{ textAlign:'right' }}>{totalQty.toLocaleString()}</td>
+                  <td style={{ textAlign:'right' }}>{fmtWon(totalAmount)}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        ) : view === 'vendor' ? (
+          <div style={{ overflowX:'auto' }}>
+            <table>
+              <thead>
+                <tr>
+                  <th>판매처</th>
+                  <th style={{ textAlign:'right' }}>판매수량</th>
+                  <th style={{ textAlign:'right' }}>매출액</th>
+                  <th style={{ textAlign:'right' }}>비중</th>
+                </tr>
+              </thead>
+              <tbody>
+                {byVendor.map(v => (
+                  <tr key={v.vendor}>
+                    <td>
+                      <span style={{ display:'inline-flex', alignItems:'center', gap:5 }}>
+                        <span className="vendor-dot" style={{ background:VENDOR_COLORS[v.vendor]||'#94a3b8' }} />
+                        {v.vendor}
+                      </span>
+                    </td>
+                    <td style={{ textAlign:'right' }}>{v.quantity.toLocaleString()}</td>
+                    <td style={{ textAlign:'right', fontWeight:600 }}>{fmtWon(v.amount)}</td>
+                    <td style={{ textAlign:'right', color:'var(--gray4)' }}>{pctOf(v.amount)}%</td>
+                  </tr>
+                ))}
+                <tr style={{ background:'var(--gray1)', fontWeight:700 }}>
+                  <td>합계</td>
+                  <td style={{ textAlign:'right' }}>{totalQty.toLocaleString()}</td>
+                  <td style={{ textAlign:'right' }}>{fmtWon(totalAmount)}</td>
+                  <td style={{ textAlign:'right' }}>100%</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div style={{ overflowX:'auto' }}>
+            <table style={{ minWidth:640 }}>
+              <thead>
+                <tr>
+                  <th>브랜드</th>
+                  <th>상품명</th>
+                  <th style={{ textAlign:'right' }}>판매수량</th>
+                  <th style={{ textAlign:'right' }}>매출액</th>
+                  <th style={{ textAlign:'right' }}>비중</th>
+                </tr>
+              </thead>
+              <tbody>
+                {byProduct.map(p => (
+                  <tr key={p.product_code}>
+                    <td style={{ fontSize:13 }}>{p.brand}</td>
+                    <td style={{ fontSize:13, maxWidth:260, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{p.product_name}</td>
+                    <td style={{ textAlign:'right' }}>{p.quantity.toLocaleString()}</td>
+                    <td style={{ textAlign:'right', fontWeight:600 }}>{fmtWon(p.amount)}</td>
+                    <td style={{ textAlign:'right', color:'var(--gray4)' }}>{pctOf(p.amount)}%</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /* ─── SALES QUERY PAGE (매출 데이터 조회) ───────────────────────────── */
 function SalesQueryPage() {
   const [rows, setRows]             = useState([]);
@@ -4146,6 +4414,7 @@ export default function App() {
       <Sidebar profile={profile} currentPage={page} onNavigate={setPage} onLogout={handleLogout} />
       <div className="main-content">
         {page === 'home'           && <HomePage onNavigate={setPage} profile={profile} />}
+        {page === 'sales-report'   && <SalesReportPage />}
         {page === 'upload'         && <UploadHubPage profile={profile} />}
         {page === 'history'        && <HistoryPage profile={profile} />}
         {page === 'purchase-query' && <PurchaseQueryPage />}
