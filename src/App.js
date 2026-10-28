@@ -870,11 +870,8 @@ function Sidebar({ profile, currentPage, onNavigate, onLogout }) {
         </button>
 
         <div className="nav-section-label">데이터 업로드</div>
-        <button className={`nav-item ${currentPage==='purchase' ? 'active' : ''}`} onClick={() => onNavigate('purchase')}>
-          <Icon name="truck" /> 매입
-        </button>
-        <button className={`nav-item ${currentPage==='sales' ? 'active' : ''}`} onClick={() => onNavigate('sales')}>
-          <Icon name="upload" /> 매출
+        <button className={`nav-item ${currentPage==='upload' ? 'active' : ''}`} onClick={() => onNavigate('upload')}>
+          <Icon name="upload" /> 매입,매출 업로드
         </button>
         <button className={`nav-item ${currentPage==='history' ? 'active' : ''}`} onClick={() => onNavigate('history')}>
           <Icon name="history" /> 업로드 이력
@@ -2294,27 +2291,42 @@ function PurchaseDataView({ refreshKey }) {
     </div>
   );
 }
+/* ─── UPLOAD HUB PAGE (매입,매출 업로드 통합) ───────────────────────── */
+function UploadHubPage({ profile }) {
+  const [type, setType] = useState('매입');
+
+  return (
+    <div>
+      <div className="page-header">
+        <div className="page-title">매입,매출 업로드</div>
+        {type === '매출' && <div className="page-sub">파일을 업로드하면 판매처·날짜가 자동으로 인식됩니다.</div>}
+      </div>
+
+      <div className="admin-tabs" style={{ marginBottom:16 }}>
+        {[{ t:'매입', icon:'truck', color:'#2563eb' }, { t:'매출', icon:'chart', color:'#22c55e' }].map(({ t, icon, color }) => (
+          <button key={t} className={`admin-tab ${type===t?'active':''}`} onClick={() => setType(t)}
+            style={type===t ? { background:color } : undefined}>
+            <Icon name={icon} style={{width:15,height:15}} /> {t}
+          </button>
+        ))}
+      </div>
+
+      <UploadPage type={type} profile={profile} key={type} />
+    </div>
+  );
+}
+
 /* ─── UPLOAD PAGE ──────────────────────────────────────────────────── */
 function UploadPage({ type, profile }) {
   const [tab, setTab]           = useState('upload');
   const [refreshKey, setRefreshKey] = useState(0);
 
-  const color   = type === '매입' ? '#2563eb' : '#22c55e';
-  const bgColor = type === '매입' ? '#eff6ff' : '#f0fdf4';
   const isSales = type === '매출';
 
   function handleUploaded() { setRefreshKey(k => k + 1); }
 
   return (
     <div>
-      <div className="page-header">
-        <div className="page-title" style={{ display:'flex', alignItems:'center', gap:10 }}>
-          <span style={{ background:bgColor, color, padding:'2px 12px', borderRadius:20, fontSize:14 }}>{type}</span>
-          {type} 관리
-        </div>
-        {isSales && <div className="page-sub">파일을 업로드하면 판매처·날짜가 자동으로 인식됩니다.</div>}
-      </div>
-
       <div className="admin-tabs" style={{ marginBottom:24 }}>
         <button className={`admin-tab ${tab==='upload'?'active':''}`} onClick={() => setTab('upload')}>
           <Icon name="upload" style={{width:15,height:15}} /> {isSales ? '일괄 업로드' : '파일 업로드'}
@@ -3392,7 +3404,7 @@ function MockOverview() {
           <div style={{ fontSize:8,color:'rgba(255,255,255,.3)',letterSpacing:.8,padding:'0 6px',marginBottom:4 }}>메인</div>
           <div style={{ padding:'5px 8px',borderRadius:5,background:'rgba(255,255,255,.07)',color:'rgba(255,255,255,.7)',fontSize:9,marginBottom:8 }}>🏠 홈</div>
           <div style={{ fontSize:8,color:'rgba(255,255,255,.3)',letterSpacing:.8,padding:'0 6px',marginBottom:4 }}>데이터 업로드</div>
-          {['매입','매출','업로드 이력','상품DB 업로드'].map(m => <div key={m} style={{ padding:'4px 8px',color:'rgba(255,255,255,.45)',fontSize:9,marginBottom:1 }}>{m}</div>)}
+          {['매입,매출 업로드','업로드 이력','상품DB 업로드'].map(m => <div key={m} style={{ padding:'4px 8px',color:'rgba(255,255,255,.45)',fontSize:9,marginBottom:1 }}>{m}</div>)}
           <div style={{ fontSize:8,color:'rgba(255,255,255,.3)',letterSpacing:.8,padding:'0 6px',margin:'6px 0 4px' }}>데이터 조회</div>
           {['매입 조회','매출 조회'].map(m => <div key={m} style={{ padding:'4px 8px',color:'rgba(255,255,255,.45)',fontSize:9,marginBottom:1 }}>{m}</div>)}
           <div style={{ fontSize:8,color:'rgba(255,255,255,.3)',letterSpacing:.8,padding:'0 6px',margin:'6px 0 4px' }}>도움말</div>
@@ -3826,7 +3838,7 @@ function HelpSectionUpload() {
       {tab === 'sales' && (
         <>
           <HelpCard title="매출 업로드 순서" accent="#22c55e">
-            <HelpStep number={1} title="사이드바 [데이터 업로드 > 매출] 클릭" desc="왼쪽 사이드바 메뉴에서 이동합니다." />
+            <HelpStep number={1} title="사이드바 [데이터 업로드 > 매입,매출 업로드] 클릭 후 [매출] 탭 선택" desc="왼쪽 사이드바 메뉴에서 이동합니다." />
             <HelpStep number={2} title="판매처 파일 드래그하거나 클릭해서 업로드" desc="판매처에서 받은 엑셀 파일을 올리면 판매처와 날짜를 자동으로 인식합니다." note="홈플러스·익스프레스는 하나의 파일에 두 판매처 데이터가 있어도 자동으로 분리됩니다." />
           </HelpCard>
           <MockSalesVendor />
@@ -3845,7 +3857,7 @@ function HelpSectionUpload() {
       {tab === 'purchase' && (
         <>
           <HelpCard title="매입 업로드 순서" accent="#2563eb">
-            <HelpStep number={1} title="사이드바 [데이터 업로드 > 매입] 클릭" />
+            <HelpStep number={1} title="사이드바 [데이터 업로드 > 매입,매출 업로드] 클릭 후 [매입] 탭 선택" />
             <HelpStep number={2} title="판매처 선택" desc="화면의 판매처 버튼 중 해당 판매처를 클릭합니다." />
             <HelpStep number={3} title="매입 날짜 입력" desc="해당 매입 데이터의 기준 날짜를 선택합니다." />
             <HelpStep number={4} title="엑셀 파일 업로드" desc="판매처에서 받은 매입 파일을 드래그하거나 클릭해서 선택합니다." note="EUC-KR 인코딩 파일도 자동 처리됩니다. 별도 변환 불필요." />
@@ -4134,8 +4146,7 @@ export default function App() {
       <Sidebar profile={profile} currentPage={page} onNavigate={setPage} onLogout={handleLogout} />
       <div className="main-content">
         {page === 'home'           && <HomePage onNavigate={setPage} profile={profile} />}
-        {page === 'purchase'       && <UploadPage type="매입" profile={profile} key="purchase" />}
-        {page === 'sales'          && <UploadPage type="매출" profile={profile} key="sales" />}
+        {page === 'upload'         && <UploadHubPage profile={profile} />}
         {page === 'history'        && <HistoryPage profile={profile} />}
         {page === 'purchase-query' && <PurchaseQueryPage />}
         {page === 'sales-query'    && <SalesQueryPage />}
