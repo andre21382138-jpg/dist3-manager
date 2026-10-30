@@ -3882,18 +3882,18 @@ function PurchaseQueryPage() {
             {selected.size > 0 && (
               <button className="btn btn-sm" style={{ background:'#2563eb', color:'white' }}
                 disabled={downloading} onClick={() => handleDownload(selected)}>
-                {downloading ? <span className="loading-spinner" /> : <><Icon name="download" style={{ width:14,height:14 }} /> 선택 다운로드</>}
+                {downloading ? <span className="loading-spinner" /> : <><Icon name="download" style={{ width:14,height:14 }} /> 자사양식 선택 다운로드</>}
               </button>
             )}
             {rows.length > 0 && (
               <button className="btn btn-sm btn-blue-light" disabled={downloading}
                 onClick={() => handleDownload(new Set(rows.map(r => r.id)))}>
-                전체 다운로드
+                자사양식 전체 다운로드
               </button>
             )}
             {rows.length > 0 && (
               <button className="btn btn-sm btn-outline" style={{ marginLeft:'auto' }} disabled={exporting} onClick={handleExport}>
-                <Icon name="download" style={{width:14,height:14}} /> {exporting ? '저장 중...' : '엑셀 다운로드'}
+                <Icon name="download" style={{width:14,height:14}} /> {exporting ? '저장 중...' : '조회결과 엑셀 다운로드'}
               </button>
             )}
           </div>
@@ -4498,7 +4498,7 @@ function HelpSectionQuery() {
         <HelpStep number={1} title="[데이터 조회 > 매입] 메뉴 클릭" />
         <HelpStep number={2} title="조회 조건 설정" desc="판매처, 기간(시작일~종료일), 브랜드 조건을 설정합니다." />
         <HelpStep number={3} title="[조회] 클릭 → 결과 확인" desc="날짜·판매처·브랜드·상품명·공급수량·공급금액 목록이 표시됩니다." />
-        <HelpStep number={4} title="엑셀 다운로드" desc="체크박스로 원하는 행 선택 후 [선택 다운로드] 또는 [전체 다운로드]." note="다운로드 파일에는 날짜·판매처·상품 정보가 포함됩니다." />
+        <HelpStep number={4} title="엑셀 다운로드" desc="[조회결과 엑셀 다운로드]: 화면에 보이는 조회결과 표를 그대로 저장합니다. [자사양식 선택/전체 다운로드]: 체크한 행(또는 전체)을 자사 업로드 양식으로 저장합니다." />
       </HelpCard>
       <MockQueryPage type="purchase" />
       <HelpCard title="매출 조회" accent="#22c55e">
