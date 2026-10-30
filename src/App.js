@@ -3287,17 +3287,8 @@ function SalesReportPage() {
 }
 
 /* ─── SALES QUERY PAGE (매출 데이터 조회) ───────────────────────────── */
-/* [매출] 데이터 조회 결과를 화면 표 양식 그대로 엑셀로 저장 */
-async function exportSalesQueryExcel(rows, totals, dateFrom, dateTo) {
-  const columns = [
-    { header: '날짜',       width: 13 },
-    { header: '판매처',     width: 14 },
-    { header: '브랜드',     width: 16 },
-    { header: '상품명',     width: 44 },
-    { header: '최종원가',   width: 14, num: true },
-    { header: '판매수량',   width: 12, num: true },
-    { header: '총판매원가', width: 16, num: true },
-  ];
+/* [매입]/[매출] 데이터 조회 결과를 화면 표 양식 그대로 엑셀로 저장 */
+async function exportQueryExcel({ title, columns, rows, summary, dateFrom, dateTo }) {
   const ACCT = '_-* #,##0_-;\\-* #,##0_-;_-* "-"_-;_-@_-';
   const FONT = { name: '맑은 고딕', size: 10 };
   const BORDER = { style: 'thin', color: { argb: 'FFD1D5DB' } };
@@ -3307,18 +3298,17 @@ async function exportSalesQueryExcel(rows, totals, dateFrom, dateTo) {
   const period = dateFrom || dateTo ? `${dateFrom || '처음'} ~ ${dateTo || '끝'}` : '전체';
 
   const wb = new ExcelJS.Workbook();
-  const ws = wb.addWorksheet('매출');
+  const ws = wb.addWorksheet(title);
   ws.columns = columns.map(c => ({ width: c.width }));
 
   ws.mergeCells(1, 1, 1, lastCol);
-  ws.getCell(1, 1).value = '매출 데이터 조회';
+  ws.getCell(1, 1).value = `${title} 데이터 조회`;
   ws.getCell(1, 1).font = { ...FONT, size: 14, bold: true };
   ws.mergeCells(2, 1, 2, lastCol);
   ws.getCell(2, 1).value = `조회기간: ${period}`;
   ws.getCell(2, 1).font = { ...FONT, color: { argb: 'FF6B7280' } };
   ws.mergeCells(3, 1, 3, lastCol);
-  ws.getCell(3, 1).value =
-    `총 판매수량 ${totals.quantity.toLocaleString()} EA · 총 판매원가 ${Math.round(totals.total_cost).toLocaleString()} 원 · 조회 결과 ${rows.length.toLocaleString()} 건`;
+  ws.getCell(3, 1).value = summary;
   ws.getCell(3, 1).font = { ...FONT, bold: true };
 
   const headerRow = ws.getRow(5);
@@ -3331,7 +3321,7 @@ async function exportSalesQueryExcel(rows, totals, dateFrom, dateTo) {
   });
 
   rows.forEach(r => {
-    const row = ws.addRow([r.date, r.vendor, r.brand, r.product_name, r.final_cost, r.quantity, r.total_cost]);
+    const row = ws.addRow(columns.map(c => r[c.key]));
     columns.forEach((c, i) => {
       const cell = row.getCell(i + 1);
       cell.font = FONT;
@@ -3346,7 +3336,7 @@ async function exportSalesQueryExcel(rows, totals, dateFrom, dateTo) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `매출_${dateFrom || '전체'}_${dateTo || '전체'}.xlsx`;
+  a.download = `${title}_${dateFrom || '전체'}_${dateTo || '전체'}.xlsx`;
   a.click();
   URL.revokeObjectURL(url);
 }
@@ -3379,7 +3369,21 @@ function SalesQueryPage() {
     if (rows.length === 0) { alert('다운로드할 조회결과가 없습니다.'); return; }
     setExporting(true);
     try {
-      await exportSalesQueryExcel(rows, totals, filterDateFrom, filterDateTo);
+      await exportQueryExcel({
+        title: '매출',
+        columns: [
+          { key: 'date',         header: '날짜',       width: 13 },
+          { key: 'vendor',       header: '판매처',     width: 14 },
+          { key: 'brand',        header: '브랜드',     width: 16 },
+          { key: 'product_name', header: '상품명',     width: 44 },
+          { key: 'final_cost',   header: '최종원가',   width: 14, num: true },
+          { key: 'quantity',     header: '판매수량',   width: 12, num: true },
+          { key: 'total_cost',   header: '총판매원가', width: 16, num: true },
+        ],
+        rows,
+        summary: `총 판매수량 ${totals.quantity.toLocaleString()} EA · 총 판매원가 ${Math.round(totals.total_cost).toLocaleString()} 원 · 조회 결과 ${rows.length.toLocaleString()} 건`,
+        dateFrom: filterDateFrom, dateTo: filterDateTo,
+      });
     } catch (e) {
       alert('엑셀 저장 중 오류가 발생했습니다: ' + (e.message || e));
     }
@@ -3687,6 +3691,44 @@ function PurchaseQueryPage() {
   const [selVendors, setSelVendors] = useState(new Set());
   const [selected, setSelected]     = useState(new Set());
   const [downloading, setDownloading] = useState(false);
+  const [preset, setPreset]         = useState('');        // 기간 버튼 선택 상태
+  const [exporting, setExporting]   = useState(false);
+
+  function applyPreset(p) {
+    setPreset(p);
+    if (p === 'yesterday') {
+      const d = new Date();
+      d.setDate(d.getDate() - 1);
+      setFilterDateFrom(toDateStr(d)); setFilterDateTo(toDateStr(d));
+    } else {
+      const r = monthRange(p === 'this' ? 0 : -1);
+      setFilterDateFrom(r.from); setFilterDateTo(r.to);
+    }
+  }
+
+  async function handleExport() {
+    if (rows.length === 0) { alert('다운로드할 조회결과가 없습니다.'); return; }
+    setExporting(true);
+    try {
+      await exportQueryExcel({
+        title: '매입',
+        columns: [
+          { key: 'date',         header: '날짜',     width: 13 },
+          { key: 'vendor',       header: '판매처',   width: 14 },
+          { key: 'brand',        header: '브랜드',   width: 16 },
+          { key: 'product_name', header: '상품명',   width: 44 },
+          { key: 'quantity',     header: '공급수량', width: 12, num: true },
+          { key: 'amount',       header: '공급금액', width: 16, num: true },
+        ],
+        rows: rows.map(r => ({ ...r, quantity: r.quantity || 0, amount: r.amount || 0 })),
+        summary: `총 공급수량 ${totals.quantity.toLocaleString()} EA · 총 공급금액 ${Math.round(totals.amount).toLocaleString()} 원 · 조회 건수 ${rows.length.toLocaleString()} 건`,
+        dateFrom: filterDateFrom, dateTo: filterDateTo,
+      });
+    } catch (e) {
+      alert('엑셀 저장 중 오류가 발생했습니다: ' + (e.message || e));
+    }
+    setExporting(false);
+  }
 
   function toggleVendor(v) {
     setSelVendors(prev => { const s = new Set(prev); s.has(v) ? s.delete(v) : s.add(v); return s; });
@@ -3695,7 +3737,7 @@ function PurchaseQueryPage() {
     setSelVendors(prev => prev.size === VENDORS.length ? new Set() : new Set(VENDORS));
   }
   function resetFilters() {
-    setFilterDateFrom(''); setFilterDateTo('');
+    setFilterDateFrom(''); setFilterDateTo(''); setPreset('');
     setSelVendors(new Set()); setRows([]); setSearched(false); setSelected(new Set());
   }
 
@@ -3770,10 +3812,15 @@ function PurchaseQueryPage() {
       <div className="card" style={{ marginBottom:20 }}>
         <div style={{ marginBottom:20 }}>
           <label className="form-label">조회기간</label>
-          <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-            <input type="date" className="form-input" style={{ width:160 }} value={filterDateFrom} onChange={e => setFilterDateFrom(e.target.value)} />
+          <div style={{ display:'flex', flexWrap:'wrap', alignItems:'center', gap:8 }}>
+            <input type="date" className="form-input" style={{ width:160 }} value={filterDateFrom} onChange={e => { setPreset(''); setFilterDateFrom(e.target.value); }} />
             <span style={{ color:'var(--gray3)' }}>~</span>
-            <input type="date" className="form-input" style={{ width:160 }} value={filterDateTo} onChange={e => setFilterDateTo(e.target.value)} />
+            <input type="date" className="form-input" style={{ width:160 }} value={filterDateTo} onChange={e => { setPreset(''); setFilterDateTo(e.target.value); }} />
+            {[{ id:'yesterday', label:'어제' }, { id:'this', label:'당월' }, { id:'last', label:'전월' }].map(p => (
+              <button key={p.id} className={`btn btn-sm ${preset===p.id ? '' : 'btn-outline'}`}
+                style={preset===p.id ? { background:'var(--navy)', color:'white' } : undefined}
+                onClick={() => applyPreset(p.id)}>{p.label}</button>
+            ))}
           </div>
         </div>
         <div className="divider" />
@@ -3842,6 +3889,11 @@ function PurchaseQueryPage() {
               <button className="btn btn-sm btn-blue-light" disabled={downloading}
                 onClick={() => handleDownload(new Set(rows.map(r => r.id)))}>
                 전체 다운로드
+              </button>
+            )}
+            {rows.length > 0 && (
+              <button className="btn btn-sm btn-outline" style={{ marginLeft:'auto' }} disabled={exporting} onClick={handleExport}>
+                <Icon name="download" style={{width:14,height:14}} /> {exporting ? '저장 중...' : '엑셀 다운로드'}
               </button>
             )}
           </div>
