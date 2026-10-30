@@ -3020,7 +3020,11 @@ function SalesReportPage() {
 
   function applyPreset(p) {
     setPreset(p);
-    if (p === 'this' || p === 'last') {
+    if (p === 'yesterday') {
+      const d = new Date();
+      d.setDate(d.getDate() - 1);
+      setDateFrom(toDateStr(d)); setDateTo(toDateStr(d));
+    } else if (p === 'this' || p === 'last') {
       const r = monthRange(p === 'this' ? 0 : -1);
       setDateFrom(r.from); setDateTo(r.to);
     }
@@ -3089,16 +3093,16 @@ function SalesReportPage() {
       <div className="card" style={{ marginBottom:20 }}>
         <label className="form-label">조회기간</label>
         <div style={{ display:'flex', flexWrap:'wrap', alignItems:'center', gap:8 }}>
-          {[{ id:'this', label:'당월' }, { id:'last', label:'전월' }].map(p => (
-            <button key={p.id} className={`btn btn-sm ${preset===p.id ? '' : 'btn-outline'}`}
-              style={preset===p.id ? { background:'var(--navy)', color:'white' } : undefined}
-              onClick={() => applyPreset(p.id)}>{p.label}</button>
-          ))}
           <input type="date" className="form-input" style={{ width:160 }} value={dateFrom}
             onChange={e => { setPreset('custom'); setDateFrom(e.target.value); }} />
           <span style={{ color:'var(--gray3)' }}>~</span>
           <input type="date" className="form-input" style={{ width:160 }} value={dateTo}
             onChange={e => { setPreset('custom'); setDateTo(e.target.value); }} />
+          {[{ id:'yesterday', label:'어제' }, { id:'this', label:'당월' }, { id:'last', label:'전월' }].map(p => (
+            <button key={p.id} className={`btn btn-sm ${preset===p.id ? '' : 'btn-outline'}`}
+              style={preset===p.id ? { background:'var(--navy)', color:'white' } : undefined}
+              onClick={() => applyPreset(p.id)}>{p.label}</button>
+          ))}
         </div>
         {invalidRange && <div style={{ marginTop:8, fontSize:12, color:'var(--red)' }}>시작일이 종료일보다 늦습니다.</div>}
       </div>
