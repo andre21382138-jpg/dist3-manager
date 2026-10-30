@@ -3287,6 +3287,70 @@ function SalesReportPage() {
 }
 
 /* ─── SALES QUERY PAGE (매출 데이터 조회) ───────────────────────────── */
+/* [매출] 데이터 조회 결과를 화면 표 양식 그대로 엑셀로 저장 */
+async function exportSalesQueryExcel(rows, totals, dateFrom, dateTo) {
+  const columns = [
+    { header: '날짜',       width: 13 },
+    { header: '판매처',     width: 14 },
+    { header: '브랜드',     width: 16 },
+    { header: '상품명',     width: 44 },
+    { header: '최종원가',   width: 14, num: true },
+    { header: '판매수량',   width: 12, num: true },
+    { header: '총판매원가', width: 16, num: true },
+  ];
+  const ACCT = '_-* #,##0_-;\\-* #,##0_-;_-* "-"_-;_-@_-';
+  const FONT = { name: '맑은 고딕', size: 10 };
+  const BORDER = { style: 'thin', color: { argb: 'FFD1D5DB' } };
+  const BORDERS = { top: BORDER, left: BORDER, bottom: BORDER, right: BORDER };
+  const GRAY = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF3F4F6' } };
+  const lastCol = columns.length;
+  const period = dateFrom || dateTo ? `${dateFrom || '처음'} ~ ${dateTo || '끝'}` : '전체';
+
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet('매출');
+  ws.columns = columns.map(c => ({ width: c.width }));
+
+  ws.mergeCells(1, 1, 1, lastCol);
+  ws.getCell(1, 1).value = '매출 데이터 조회';
+  ws.getCell(1, 1).font = { ...FONT, size: 14, bold: true };
+  ws.mergeCells(2, 1, 2, lastCol);
+  ws.getCell(2, 1).value = `조회기간: ${period}`;
+  ws.getCell(2, 1).font = { ...FONT, color: { argb: 'FF6B7280' } };
+  ws.mergeCells(3, 1, 3, lastCol);
+  ws.getCell(3, 1).value =
+    `총 판매수량 ${totals.quantity.toLocaleString()} EA · 총 판매원가 ${Math.round(totals.total_cost).toLocaleString()} 원 · 조회 결과 ${rows.length.toLocaleString()} 건`;
+  ws.getCell(3, 1).font = { ...FONT, bold: true };
+
+  const headerRow = ws.getRow(5);
+  headerRow.values = columns.map(c => c.header);
+  headerRow.eachCell((cell, colNum) => {
+    cell.font = { ...FONT, bold: true };
+    cell.fill = GRAY;
+    cell.border = BORDERS;
+    cell.alignment = { horizontal: columns[colNum - 1].num ? 'right' : 'left', vertical: 'middle' };
+  });
+
+  rows.forEach(r => {
+    const row = ws.addRow([r.date, r.vendor, r.brand, r.product_name, r.final_cost, r.quantity, r.total_cost]);
+    columns.forEach((c, i) => {
+      const cell = row.getCell(i + 1);
+      cell.font = FONT;
+      cell.border = BORDERS;
+      if (c.num) { cell.numFmt = ACCT; cell.alignment = { horizontal: 'right' }; }
+    });
+  });
+  ws.views = [{ state: 'frozen', ySplit: 5 }];
+
+  const buffer = await wb.xlsx.writeBuffer();
+  const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `매출_${dateFrom || '전체'}_${dateTo || '전체'}.xlsx`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 function SalesQueryPage() {
   const [rows, setRows]             = useState([]);
   const [loading, setLoading]       = useState(false);
@@ -3296,6 +3360,31 @@ function SalesQueryPage() {
   const [selVendors, setSelVendors] = useState(new Set()); // 선택된 판매처
   const [selBrands, setSelBrands]   = useState(new Set()); // 선택된 브랜드
   const [brands, setBrands]         = useState([]);        // DB에서 불러온 브랜드 목록
+  const [preset, setPreset]         = useState('');        // 기간 버튼 선택 상태
+  const [exporting, setExporting]   = useState(false);
+
+  function applyPreset(p) {
+    setPreset(p);
+    if (p === 'yesterday') {
+      const d = new Date();
+      d.setDate(d.getDate() - 1);
+      setFilterDateFrom(toDateStr(d)); setFilterDateTo(toDateStr(d));
+    } else {
+      const r = monthRange(p === 'this' ? 0 : -1);
+      setFilterDateFrom(r.from); setFilterDateTo(r.to);
+    }
+  }
+
+  async function handleExport() {
+    if (rows.length === 0) { alert('다운로드할 조회결과가 없습니다.'); return; }
+    setExporting(true);
+    try {
+      await exportSalesQueryExcel(rows, totals, filterDateFrom, filterDateTo);
+    } catch (e) {
+      alert('엑셀 저장 중 오류가 발생했습니다: ' + (e.message || e));
+    }
+    setExporting(false);
+  }
 
   // 브랜드 목록 로드
   useEffect(() => {
@@ -3318,7 +3407,7 @@ function SalesQueryPage() {
     setSelBrands(prev => prev.size === brands.length ? new Set() : new Set(brands));
   }
   function resetFilters() {
-    setFilterDateFrom(''); setFilterDateTo('');
+    setFilterDateFrom(''); setFilterDateTo(''); setPreset('');
     setSelVendors(new Set()); setSelBrands(new Set());
     setRows([]); setSearched(false);
   }
@@ -3418,10 +3507,15 @@ function SalesQueryPage() {
         {/* 조회기간 */}
         <div style={{ marginBottom:20 }}>
           <label className="form-label">조회기간</label>
-          <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-            <input type="date" className="form-input" style={{ width:160 }} value={filterDateFrom} onChange={e => setFilterDateFrom(e.target.value)} />
+          <div style={{ display:'flex', flexWrap:'wrap', alignItems:'center', gap:8 }}>
+            <input type="date" className="form-input" style={{ width:160 }} value={filterDateFrom} onChange={e => { setPreset(''); setFilterDateFrom(e.target.value); }} />
             <span style={{ color:'var(--gray3)' }}>~</span>
-            <input type="date" className="form-input" style={{ width:160 }} value={filterDateTo} onChange={e => setFilterDateTo(e.target.value)} />
+            <input type="date" className="form-input" style={{ width:160 }} value={filterDateTo} onChange={e => { setPreset(''); setFilterDateTo(e.target.value); }} />
+            {[{ id:'yesterday', label:'어제' }, { id:'this', label:'당월' }, { id:'last', label:'전월' }].map(p => (
+              <button key={p.id} className={`btn btn-sm ${preset===p.id ? '' : 'btn-outline'}`}
+                style={preset===p.id ? { background:'var(--navy)', color:'white' } : undefined}
+                onClick={() => applyPreset(p.id)}>{p.label}</button>
+            ))}
           </div>
         </div>
 
@@ -3482,6 +3576,14 @@ function SalesQueryPage() {
                   <div style={{ fontSize:16, fontWeight:700, color:s.color }}>{s.value}</div>
                 </div>
               ))}
+            </div>
+          )}
+
+          {rows.length > 0 && (
+            <div style={{ display:'flex', justifyContent:'flex-end', marginBottom:10 }}>
+              <button className="btn btn-sm btn-outline" disabled={exporting} onClick={handleExport}>
+                <Icon name="download" style={{width:14,height:14}} /> {exporting ? '저장 중...' : '엑셀 다운로드'}
+              </button>
             </div>
           )}
 
