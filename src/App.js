@@ -2865,6 +2865,108 @@ function monthRange(offset = 0) {
   return { from: toDateStr(first), to: toDateStr(last) };
 }
 
+/* 매출조회 화면의 현재 보기(판매처별/날짜별/상품별 순위)를 화면 양식 그대로 엑셀로 저장 */
+async function exportSalesReportExcel({ view, dateFrom, dateTo, totals, byVendor, byDate, byProduct, productVendor, productTotal, rankBy }) {
+  const VIEW_LABEL = { vendor: '판매처별', date: '날짜별', product: '상품별 순위' };
+  const WON = '#,##0"원"';
+  const NUM = '#,##0';
+  const PCT = '0.0"%"';
+  const pct = (n, base) => base > 0 ? Math.round(n / base * 1000) / 10 : 0;
+
+  let columns, body, totalRow, subTitle = '';
+  if (view === 'vendor') {
+    columns = [
+      { header: '판매처',   width: 18 },
+      { header: '판매수량', width: 14, fmt: NUM, right: true },
+      { header: '매출액',   width: 18, fmt: WON, right: true },
+      { header: '비중',     width: 10, fmt: PCT, right: true },
+    ];
+    body = byVendor.map(v => [v.vendor, v.quantity, v.amount, pct(v.amount, totals.amount)]);
+    totalRow = ['합계', totals.quantity, totals.amount, 100];
+  } else if (view === 'date') {
+    columns = [
+      { header: '날짜',   width: 13 },
+      { header: '판매처', width: 40 },
+      { header: '수량',   width: 14, fmt: NUM, right: true },
+      { header: '매출액', width: 18, fmt: WON, right: true },
+    ];
+    body = byDate.map(d => [d.date, [...d.vendors].join(', '), d.quantity, d.amount]);
+    totalRow = ['합계', '', totals.quantity, totals.amount];
+  } else {
+    columns = [
+      { header: '순위',   width: 7, center: true },
+      { header: '브랜드', width: 16 },
+      { header: '상품명', width: 44 },
+      { header: '수량',   width: 12, fmt: NUM, right: true },
+      { header: '매출액', width: 18, fmt: WON, right: true },
+      { header: '비중',   width: 10, fmt: PCT, right: true },
+    ];
+    body = byProduct.map((p, i) => [i + 1, p.brand, p.product_name, p.quantity, p.amount, pct(p.amount, productTotal)]);
+    subTitle = `판매처: ${productVendor || '전체'} · 순위 기준: ${rankBy === 'quantity' ? '수량' : '매출액'}`;
+  }
+
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet(VIEW_LABEL[view]);
+  const FONT = { name: '맑은 고딕', size: 10 };
+  const BORDER = { style: 'thin', color: { argb: 'FFD1D5DB' } };
+  const BORDERS = { top: BORDER, left: BORDER, bottom: BORDER, right: BORDER };
+  const lastCol = columns.length;
+
+  ws.columns = columns.map(c => ({ width: c.width }));
+
+  // 제목 / 조회조건 / 합계 요약
+  ws.mergeCells(1, 1, 1, lastCol);
+  ws.getCell(1, 1).value = `매출조회 - ${VIEW_LABEL[view]}`;
+  ws.getCell(1, 1).font = { ...FONT, size: 14, bold: true };
+  ws.mergeCells(2, 1, 2, lastCol);
+  ws.getCell(2, 1).value = `조회기간: ${dateFrom} ~ ${dateTo}${subTitle ? ' · ' + subTitle : ''}`;
+  ws.getCell(2, 1).font = { ...FONT, color: { argb: 'FF6B7280' } };
+  ws.mergeCells(3, 1, 3, lastCol);
+  ws.getCell(3, 1).value =
+    `총 매출액 ${Math.round(totals.amount).toLocaleString()}원 · 총 판매수량 ${totals.quantity.toLocaleString()} EA · 판매처 수 ${totals.vendors}곳`;
+  ws.getCell(3, 1).font = { ...FONT, bold: true };
+
+  const headerRow = ws.getRow(5);
+  headerRow.values = columns.map(c => c.header);
+  headerRow.eachCell((cell, colNum) => {
+    const c = columns[colNum - 1];
+    cell.font = { ...FONT, bold: true };
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF3F4F6' } };
+    cell.border = BORDERS;
+    cell.alignment = { horizontal: c.right ? 'right' : c.center ? 'center' : 'left', vertical: 'middle' };
+  });
+
+  const styleRow = (row, bold) => {
+    columns.forEach((c, i) => {
+      const cell = row.getCell(i + 1);
+      cell.font = { ...FONT, bold: !!bold };
+      cell.border = BORDERS;
+      if (c.fmt) cell.numFmt = c.fmt;
+      cell.alignment = { horizontal: c.right ? 'right' : c.center ? 'center' : 'left', vertical: 'middle' };
+    });
+  };
+  body.forEach(vals => styleRow(ws.addRow(vals)));
+  if (totalRow) {
+    const row = ws.addRow(totalRow);
+    if (view === 'date') ws.mergeCells(row.number, 1, row.number, 2);
+    styleRow(row, true);
+    row.eachCell({ includeEmpty: true }, cell => {
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF3F4F6' } };
+    });
+  }
+  ws.views = [{ state: 'frozen', ySplit: 5 }];
+
+  const buffer = await wb.xlsx.writeBuffer();
+  const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  const vendorPart = view === 'product' && productVendor ? `_${productVendor}` : '';
+  a.download = `매출조회_${VIEW_LABEL[view].replace(/\s/g, '')}${vendorPart}_${dateFrom}_${dateTo}.xlsx`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 /* ─── SALES REPORT PAGE (매출조회) ──────────────────────────────────────
    판매처가 우리에게서 매입한 내역(purchase_data)이 곧 우리 매출이므로
    매입 업로드 데이터를 판매처/날짜/상품별로 집계한다. */
@@ -2880,6 +2982,7 @@ function SalesReportPage() {
   const [loading, setLoading]   = useState(true);
   const [error, setError]       = useState('');
   const [version, setVersion]   = useState(0);
+  const [exporting, setExporting] = useState(false);
 
   useDataChanged('purchase', () => setVersion(v => v + 1));
 
@@ -2959,6 +3062,22 @@ function SalesReportPage() {
   }
   const invalidRange = dateFrom && dateTo && dateFrom > dateTo;
 
+  async function handleExport() {
+    if (loading || error || rows.length === 0) { alert('다운로드할 조회결과가 없습니다.'); return; }
+    if (view === 'product' && byProduct.length === 0) { alert('다운로드할 조회결과가 없습니다.'); return; }
+    setExporting(true);
+    try {
+      await exportSalesReportExcel({
+        view, dateFrom, dateTo,
+        totals: { amount: totalAmount, quantity: totalQty, vendors: byVendor.length },
+        byVendor, byDate, byProduct, productVendor, productTotal, rankBy,
+      });
+    } catch (e) {
+      alert('엑셀 저장 중 오류가 발생했습니다: ' + (e.message || e));
+    }
+    setExporting(false);
+  }
+
   return (
     <div>
       <div className="page-header">
@@ -2998,16 +3117,22 @@ function SalesReportPage() {
         ))}
       </div>
 
-      {/* 보기 전환 */}
-      <div className="admin-tabs" style={{ marginBottom:16 }}>
-        <button className={`admin-tab ${view==='vendor'?'active':''}`} onClick={() => setView('vendor')}>
-          <Icon name="building" style={{width:15,height:15}} /> 판매처별
-        </button>
-        <button className={`admin-tab ${view==='date'?'active':''}`} onClick={() => setView('date')}>
-          <Icon name="history" style={{width:15,height:15}} /> 날짜별
-        </button>
-        <button className={`admin-tab ${view==='product'?'active':''}`} onClick={() => setView('product')}>
-          <Icon name="grid" style={{width:15,height:15}} /> 상품별 순위
+      {/* 보기 전환 + 엑셀 다운로드 */}
+      <div style={{ display:'flex', flexWrap:'wrap', alignItems:'center', justifyContent:'space-between', gap:10, marginBottom:16 }}>
+        <div className="admin-tabs" style={{ marginBottom:0 }}>
+          <button className={`admin-tab ${view==='vendor'?'active':''}`} onClick={() => setView('vendor')}>
+            <Icon name="building" style={{width:15,height:15}} /> 판매처별
+          </button>
+          <button className={`admin-tab ${view==='date'?'active':''}`} onClick={() => setView('date')}>
+            <Icon name="history" style={{width:15,height:15}} /> 날짜별
+          </button>
+          <button className={`admin-tab ${view==='product'?'active':''}`} onClick={() => setView('product')}>
+            <Icon name="grid" style={{width:15,height:15}} /> 상품별 순위
+          </button>
+        </div>
+        <button className="btn btn-sm btn-outline" disabled={exporting}
+          onClick={handleExport}>
+          <Icon name="download" style={{width:14,height:14}} /> {exporting ? '저장 중...' : '엑셀 다운로드'}
         </button>
       </div>
 
